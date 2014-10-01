@@ -33,57 +33,69 @@
 .header .header-title,
 .header .header-files {
   font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
-  color: #193460;
+  color: #003262;
 }
 .header .header-title .title {
   font-size: 30px;
-  width: 416px;
+  width: 312px;
 }
 .header .header-title .version {
   height: 30px;
   line-height: 30px;
   font-size: 14px;
 }
-.header .header-files label {
-  font-size: 14px;
-  color: #193460;
-  margin-right: 5px;
-  display: inline-block;
-  min-width: 75px;
-}
 .header .header-files .files-description {
   font-size: 20px;
-  width: 312px;
+  width: 416px;
 }
-.header .header-files .files {
-  margin-top: 10px;
-}
-.header .header-files .files .file-input {
-  display: block;
-  margin: 5px 0;
-}
-.header .header-files .files .file-input input[type="file"] {
-  color: transparent;
-  display: none;
-}
-.header .header-files .files .file-input button {
-  font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
-  font-size: 14px;
-  color: #193460;
-  background: white;
-  border: 1px solid #193460;
-  padding: 3px;
-  width: 200px;
-  -webkit-appearance: none;
-  cursor: pointer;
-}
-.header .header-files .file-input-error {
+.header .header-files .files-description .file-input-error {
   display: none;
   font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
   font-size: 14px;
   font-weight: bold;
   color: #FF0000;
   margin-left: 30px;
+}
+.header .header-files .load-controls .files {
+  display: inline-block;
+  width: 249.6px;
+  margin-top: 10px;
+}
+.header .header-files .load-controls .files .file-input {
+  margin: 5px;
+}
+.header .header-files .load-controls .files .file-input label {
+  font-size: 14px;
+  color: #003262;
+  margin-right: 5px;
+  display: inline-block;
+  min-width: 75px;
+}
+.header .header-files .load-controls .files .file-input input[type="file"] {
+  color: transparent;
+  display: none;
+}
+.header .header-files .load-controls .files .file-input button {
+  font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 14px;
+  color: #003262;
+  background: white;
+  border: 1px solid #003262;
+  padding: 3px;
+  width: 145.6px;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.header .header-files .load-controls .autoload {
+  display: inline-block;
+  vertical-align: top;
+  font-size: 14px;
+  width: 166.4px;
+  text-align: center;
+}
+.header .header-files .load-controls .autoload label {
+  display: block;
+  margin: 20px 0 10px;
 }
 .header .header-feedback-link {
   float: right;
@@ -92,9 +104,9 @@
   font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
   font-size: 13px;
   text-decoration: none;
-  color: #193460;
-  border: 1px solid #193460;
-  border-right: 25px solid #193460;
+  color: #003262;
+  border: 1px solid #003262;
+  border-right: 25px solid #003262;
 }
 .main .graph-container,
 .main .controls-container {
@@ -120,7 +132,7 @@
 .main .controls-container .next-prev-control,
 .main .controls-container .control-button,
 .main .controls-container .control-container {
-  color: #193460;
+  color: #003262;
   font-family: "Open Sans", "Helvetica Neue", Helvetica, sans-serif;
 }
 .main .controls-container .show-title {
@@ -128,7 +140,7 @@
   line-height: 25px;
   font-size: 18px;
   width: 100%;
-  border-bottom: 1px solid #193460;
+  border-bottom: 1px solid #003262;
 }
 .main .controls-container .animation-state {
   margin-top: 5px;
@@ -187,7 +199,7 @@
 .main .controls-container .increment-control {
   display: inline-block;
   width: 203px;
-  border: 1px solid #193460;
+  border: 1px solid #003262;
   box-sizing: border-box;
   padding-left: 5px;
   -webkit-touch-callout: none;
@@ -201,17 +213,17 @@
   font-size: 13px;
 }
 .main .controls-container .increment-control.next {
-  border-right: 25px solid #193460;
+  border-right: 25px solid #003262;
 }
 .main .controls-container .increment-control.prev {
-  border-left: 25px solid #193460;
+  border-left: 25px solid #003262;
 }
 .main .controls-container .increment-control:first-child {
   margin-right: 10px;
 }
 .main .controls-container .control-button {
   width: 414px;
-  border: 1px solid #193460;
+  border: 1px solid #003262;
   text-align: center;
 }
 .main .controls-container .control-button.disabled {
