@@ -104,8 +104,19 @@
 	    $(".js-animate").click(function () {
 	        applicationController.toggleAnimation();
 	    });
+
+	    // for testing PDF
+	    window.pdf = function() {
+	        if ($(".js-dot-labels").val() === "") {
+	            var dot = applicationController.getShow().getDotLabels()[0];
+	            $(".js-dot-labels").trigger('change', {selected:dot});
+	        }
+	        applicationController.generatePDF();
+	    };
 	    $(".js-generate-continuity").click(function () {
-	        console.log("click received");
+	        if (!$(this).hasClass("disabled")) {
+	            applicationController.generatePDF();
+	        }
 	    });
 	    
 	    $(".js-dot-labels").chosen({
@@ -142,9 +153,10 @@
 	var Grapher = __webpack_require__(2);
 	var ShowUtils = __webpack_require__(3);
 	var TimedBeatsUtils = __webpack_require__(4);
-	var MusicAnimator = __webpack_require__(6);
-	var MusicPlayerFactory = __webpack_require__(7);
+	var MusicAnimator = __webpack_require__(7);
+	var MusicPlayerFactory = __webpack_require__(8);
 	var AnimationStateDelegate = __webpack_require__(5);
+	var PDFGenerator = __webpack_require__(6);
 
 	/**
 	 * The ApplicationController is the backbone of how functional components
@@ -194,7 +206,7 @@
 	 * @param {int} the year of the desired shows
 	 */
 	ApplicationController.prototype.getShows = function(year) {
-	    var url = "http://calchart-server.herokuapp.com/list/" + year;
+	    var url = "https://calchart-server.herokuapp.com/list/" + year;
 	    $.getJSON(url, function(data) {
 	        var options = data.shows.map(function(show) {
 	            return "<option value='" + show["index_name"] + "'>" + show["title"] + "</option>";
@@ -210,7 +222,7 @@
 	 * @param {String} show is the index_name of the show to get
 	 */
 	ApplicationController.prototype.autoloadShow = function(index_name) {
-	    var url = "http://calchart-server.herokuapp.com/";
+	    var url = "https://calchart-server.herokuapp.com/";
 	    var _this = this;
 	    $.getJSON(url + "chart/" + index_name, function(data) {
 	        var response = JSON.stringify(data);
@@ -307,7 +319,7 @@
 
 	/**
 	 * Update the DOM with the correct stuntsheet number, beat number, and number
-	 * of beats in teh current stuntsheet depending on the state of the
+	 * of beats in the current stuntsheet depending on the state of the
 	 * animationStateDelegate.
 	 */
 	ApplicationController.prototype._updateUIWithAnimationState = function () {
@@ -323,6 +335,8 @@
 	    }
 	    if (this._animationStateDelegate.getSelectedDot() !== null) {
 	        var selectedDot = this._animationStateDelegate.getSelectedDot();
+	        //$(".js-selected-dot-label").parent().removeClass("disabled");
+	        $(".js-selected-dot-label").text(selectedDot);
 	        var currentSheet = this._animationStateDelegate.getCurrentSheet();
 	        var typeOfDot = currentSheet.getDotType(selectedDot);
 	        var continuities = currentSheet.getContinuityTexts(typeOfDot);
@@ -335,6 +349,7 @@
 	            $(".js-dot-continuity").html("");
 	        }
 	    } else {
+	        $(".js-selected-dot-label").parent().addClass("disabled");
 	        $(".js-dot-continuity").html("");
 	    }
 	};
@@ -389,9 +404,9 @@
 	 * @param {String} fileName
 	 */
 	ApplicationController.prototype._setFileInputText = function(selector, fileName) {
-	    const MAX_LENGTH = 15;
+	    var MAX_LENGTH = 16;
 	    if (fileName.length > MAX_LENGTH) {
-	        fileName = fileName.substring(0, MAX_LENGTH + 1) + "...";
+	        fileName = fileName.substring(0, MAX_LENGTH) + "...";
 	    }
 	    $(selector).text(fileName);
 	};
@@ -579,6 +594,16 @@
 	        } else {
 	            $(".js-animate").addClass("disabled");
 	        }
+	    }
+	};
+
+	/**
+	 * Passes relevant information to the PDFGenerator module which will open a PDF
+	 * document that contains the selected dot's continuity for the entire show.
+	 */
+	ApplicationController.prototype.generatePDF = function() {
+	    if (this._animationStateDelegate.getSelectedDot() !== undefined) {
+	        new PDFGenerator(this._show, this._animationStateDelegate.getSelectedDot()).generate();
 	    }
 	};
 
@@ -945,8 +970,8 @@
 	 *   used to create and manage Show objects.
 	 */
 
-	 var ViewerFileLoadSelector = __webpack_require__(9);
-	 var Version = __webpack_require__(8);
+	 var ViewerFileLoadSelector = __webpack_require__(10);
+	 var Version = __webpack_require__(9);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -980,8 +1005,8 @@
 	 *   used to create and manage TimedBeats objects.
 	 */
 
-	 var BeatsFileLoadSelector = __webpack_require__(10);
-	 var Version = __webpack_require__(8);
+	 var BeatsFileLoadSelector = __webpack_require__(11);
+	 var Version = __webpack_require__(9);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -1231,6 +1256,557 @@
 
 /***/ },
 /* 6 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview This file will export a class that can generate a PDF representation
+	 * of dots and movements
+	 *
+	 * @constant WIDTH is the width of the PDF document, in millimeters
+	 * @constant HEIGHT is the height of the PDF document, in millimeters
+	 * @constant QUADRANT contains (x,y) coordinates for the top left corner of each quadrant
+	 *      of the document. y coordinates offset by headers
+	 * @constant DOT_DATA contains the JPEG image data for the different dot types
+	 */
+
+	var MovementCommandEven = __webpack_require__(12);
+	var MovementCommandMove = __webpack_require__(13);
+	var MovementCommandStand = __webpack_require__(14);
+	var MovementCommandGoto = __webpack_require__(15);
+	var MovementCommandMarkTime = __webpack_require__(16);
+	var MovementCommandArc = __webpack_require__(17);
+
+	/* CONSTANTS: DON'T CHANGE */
+	var WIDTH = 215.9;
+	var HEIGHT = 279.4;
+
+	var QUADRANT = [
+	    {x: 3, y: 24},                 // top left
+	    {x: 3, y: HEIGHT/2 + 16},      // bottom left
+	    {x: WIDTH/2 + 3, y: 24},           // top right
+	    {x: WIDTH/2 + 3, y: HEIGHT/2 + 16} // bottom right
+	];
+	var QUADRANT_HEIGHT = HEIGHT/2 - 22;
+	var QUADRANT_WIDTH = WIDTH/2 - 6;
+
+	var DOT_DATA = {
+	    "open": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP6+fGHxi/an+Mvx2+MXwQ/ZKuvgB8NvCX7O3/CvtB+LP7Rnx08H/EX44+f8dvGPg62+J+pfs1+F/wBmvwb8Qf2adTb/AIRv4JfEP4DfGbW/2jJ/2hb/AMHQf8LO0j4S+Gvhh428W2vxL174N9B8FPjX8fdC+Puofsp/tWWHwf1LxvqXwfuvjX8Dvjj8FLXxp4P8K/tDeFfB3jTSvCfx9sNQ+AXizVfijq/7O3iD9nbV/ij+zvoN1a69+0P8XtO+N2nfF7SvH/gDVdEudE+J/wAMPhR5/q+kftD/ALKv7Q/7R3xP+GH7OPiD9qf4E/tT+IPhr8W/EXh74S/Er4S6B+0r4A/aV8P/AAl8Ifs+eK5I/Cn7Qfi/9n34Han+zBqfwO/Z9+BN1pupWvx2vfjf4Z+N9748VvAfjr4beOtP1D4IdB8HfB/x2+Mv7U9t+1r8b/g7/wAM7eEvht8APGHwM/Zz+E+vfEHwd4x+O0//AAvH4i/D7xl+0p4p/aU034YXXxD+CXhvOp/s0/s9Qfs56J8Gfjz8TvI8HX/xP8S/FvV7Xxb420H4afBv/9k=",
+	    "solid": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APtv/gvJ/wAHPPxC/wCCbX7UF3+xh+yL8HPg/wDEr4reAvD/AMOvFfxm+I3xrk+JmqeFfCGo+OdA1/xQnwhsPhr4Yb4V3OreIH8E6z8HviTa/FTRvjB4h8K22neLNV8B3ngx/FOn6jf+HvqD/g3x/wCDg7WP+Cu2sfFT4CfHv4WfD/4S/tNfCT4f2PxStrn4W33jufwJ8YfAlx471Tw14s13QvCfibTPEf8Awqz/AIVZ/wAJF8GPDmp6Z4j+M/jjWPiJrHjjUPE/hjT9E0XRNZ0bQ/yg/wCDjX/g3K/ba/a+/ba8UftzfsM+F/D/AMbLb42eH/hNo3xX+FOs/FnwP4H+IXhz4heB/A9/8O7jxZ4Tt/iJYfDj4dxfB+L4d/Dj4T2dzbXnxY8S/Ey5+JniXxNe2Xhr/hCRHJ4b+v8A/g2G/wCCDn7UH/BNr4hfGP8Aa6/bPtPD/gL4rfEv4Px/BT4c/Bnwp8RtA8c6j4Q8K6p8TB4n+JWofF5/DGgaz4JfxBq1z8K/g9rXwruvht8YfFmnW3hXxD4zs/Hmlaf4paw07w9//9k=",
+	    "open-x": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP6WvHP7Vf7XGj/tQfEn9mr4c+P/AIP6J8IfDvxg0PwVJ+3T+0J8F9b+JnhX4Z/tD/GfQPBPxO+Hf/BN3xv8FfhT8Xf2Xrm48Qah4J+M3w18UfAv9ta/8deGPhLr+neNPgv+xB4o8P8Axd/be8S3HxI+IvQfsl/taftHfHb9o7wz8Lfil4m+H+nfC3Tvh/8AEP40/AP4+fBb4eXXhbwJ/wAFQ/AnhW68HfD/AOIfjjwP8PPiD4x+N/i39mr4Afs1eLfjf8M7PStWvPiZ4q1j9vDWPFXwc/ab/Zk+Menfspad8Qvh98VPH/iZ8M/2h9V/aH/ab8Q+Hv2ZPjB8ev8Agnv8evjBZ+Jvjn8DPDV58Jfhl+0r+0D+0r8MvhL8Lf2adbtrnRP2lvil+z78O9T/AOCUGp/Dv9n3wdo/izwnrHjHw/8AG/8AaZ+N/h/WZYtG+M//AATK+M95Z/FD0D9lTwN+0/o/7XHgD4jftK/Db4weHfhDonwf+NP7Pf7CsfjXXNA+M/7Q/wAM/CvxM1v4RfFf41+CP+CkXxE+GPjb4zeCdQ8QXNz+y94FsP2KPjp4X+JXjTTtf+EvhjxB4Y/bf+NHiX9t74u/De3+Iv8A/9k=",
+	    "solid-x": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APpv/gtL/wAHK/x9/wCCW37UHxA/Yo/Z60L4P/tJfEnwr4g8O/EzxR8Ufjv4V8aaXB8IfCvxa0DU/Hth+y5qngX4a3Hwi0n4meIPBmk+IvAXjDwB+0F4Z8aabp0Hwb8T+Fvg98S/A3xD+O3gr4jfHrxh9Qf8EE/+C9nxT/4LGfFO++Dvxisfh/8As9/Fr9nv4f8AiD4xeMPB/wAHfD/iPWfDv7WXh3WfEd78Pra6trr4hWXjT/hQXw/+AX/CafD668YeD7b4g+J/in8c/in4n+H3jDwf8Qfh38Jfh18Yvg78Tfyg/wCC+/8AwQI/ba/b+/ba+Lv7dv7CXwi8QeP9D8f+IPBXwo+Ifw8+LHjXwP8ABr4ha58Qvg14Hf4V+JPjD8HvDfxVT4caTF+zBFpPw48E+BdE1vx142t/iZ8SfiZb+Mvil8LfBvi39lzxb8Kfitrn1/8A8G1H/BFr9qD/AIJbfH3Xv2hf22Ph/wCIPCvxJ/aS+D/ir4EfC/wx8M/EWgfFrwr8IYNL8aW/xK8d6X+1Jf8AgLTPEWk+DPEHxM0n4ReC/E37Pvj/AMH+PvE/wbg07TfHXw0+MXinwV8dviH8Bfhz4w//2Q==",
+	    "open-forwardslash": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP6+fGHxi/an+Mvx2+MXwQ/ZKuvgB8NvCX7O3/CvtB+LP7Rnx08H/EX44+f8dvGPg62+J+pfs1+F/wBmvwb8Qf2adTb/AIRv4JfEP4DfGbW/2jJ/2hb/AMHQf8LO0j4S+Gvhh428W2vxL174N+Afsl/taftHfHb9o7wz8Lfil4m+H+nfC3Tvh/8AEP40/AP4+fBb4eXXhbwJ/wAFQ/AnhW68HfD/AOIfjjwP8PPiD4x+N/i39mr4Afs1eLfjf8M7PStWvPiZ4q1j9vDWPFXwc/ab/Zk+Menfspad8Qvh98VPH/iZ8M/2h9V/aH/ab8Q+Hv2ZPjB8ev8Agnv8evjBZ+Jvjn8DPDV58Jfhl+0r+0D+0r8MvhL8Lf2adbtrnRP2lvil+z78O9T/AOCUGp/Dv9n3wdo/izwnrHjHw/8AG/8AaZ+N/h/WZYtG+M//AATK+M95Z/FD7f8Ag74P+O3xl/antv2tfjf8Hf8Ahnbwl8NvgB4w+Bn7Ofwn174g+DvGPx2n/wCF4/EX4feMv2lPFP7Smm/DC6+IfwS8N51P9mn9nqD9nPRPgz8efid5Hg6/+J/iX4t6va+LfG2g/DT4N//Z",
+	    "solid-forwardslash": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APtv/gvJ/wAHPPxC/wCCbX7UF3+xh+yL8HPg/wDEr4reAvD/AMOvFfxm+I3xrk+JmqeFfCGo+OdA1/xQnwhsPhr4Yb4V3OreIH8E6z8HviTa/FTRvjB4h8K22neLNV8B3ngx/FOn6jf+HvYP+CCf/Bez4p/8FjPinffB34xWPw//AGe/i1+z38P/ABB8YvGHg/4O+H/Ees+Hf2svDus+I734fW11bXXxCsvGn/Cgvh/8Av8AhNPh9deMPB9t8QfE/wAU/jn8U/E/w+8YeD/iD8O/hL8OvjF8Hfib+UH/AAX3/wCCBH7bX7f37bXxd/bt/YS+EXiDx/ofj/xB4K+FHxD+HnxY8a+B/g18Qtc+IXwa8Dv8K/Enxh+D3hv4qp8ONJi/Zgi0n4ceCfAuia3468bW/wATPiT8TLfxl8Uvhb4N8W/sueLfhT8Vtc+//wDg2G/4IOftQf8ABNr4hfGP9rr9s+08P+Avit8S/g/H8FPhz8GfCnxG0DxzqPhDwrqnxMHif4lah8Xn8MaBrPgl/EGrXPwr+D2tfCu6+G3xh8WadbeFfEPjOz8eaVp/ilrDTvD3/9k=",
+	    "open-backslash": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP6WvHP7Vf7XGj/tQfEn9mr4c+P/AIP6J8IfDvxg0PwVJ+3T+0J8F9b+JnhX4Z/tD/GfQPBPxO+Hf/BN3xv8FfhT8Xf2Xrm48Qah4J+M3w18UfAv9ta/8deGPhLr+neNPgv+xB4o8P8Axd/be8S3HxI+Iv1/8FPjX8fdC+Puofsp/tWWHwf1LxvqXwfuvjX8Dvjj8FLXxp4P8K/tDeFfB3jTSvCfx9sNQ+AXizVfijq/7O3iD9nbV/ij+zvoN1a69+0P8XtO+N2nfF7SvH/gDVdEudE+J/ww+FHj/wAQ/h58Xfgl8Xf2tNV0r9kv/htv9lL9tv8A4Q7xd8Uvhb4R8Y/BN/jZpvxsf4J+Gf2ZfiZ4d8RfDP8Aab8TfAn9njxj+yB4x/Z4+BPwUtZ4Lr416v8AF3TPi7q/xFsNQ+HXxB+FvxBs7z4JeQfsqeBv2n9H/a48AfEb9pX4bfGDw78IdE+D/wAaf2e/2FY/GuuaB8Z/2h/hn4V+Jmt/CL4r/GvwR/wUi+Inwx8bfGbwTqHiC5uf2XvAth+xR8dPC/xK8aadr/wl8MeIPDH7b/xo8S/tvfF34b2/xF//2Q==",
+	    "solid-backslash": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APpv/gtL/wAHK/x9/wCCW37UHxA/Yo/Z60L4P/tJfEnwr4g8O/EzxR8Ufjv4V8aaXB8IfCvxa0DU/Hth+y5qngX4a3Hwi0n4meIPBmk+IvAXjDwB+0F4Z8aabp0Hwb8T+Fvg98S/A3xD+O3gr4jfHrxh9wf8G+P/AAcHax/wV21j4qfAT49/Cz4f/CX9pr4SfD+x+KVtc/C2+8dz+BPjD4EuPHeqeGvFmu6F4T8TaZ4j/wCFWf8ACrP+Ei+DHhzU9M8R/GfxxrHxE1jxxqHifwxp+iaLoms6Nof5Qf8ABxr/AMG5X7bX7X37bXij9ub9hnwv4f8AjZbfGzw/8JtG+K/wp1n4s+B/A/xC8OfELwP4Hv8A4d3Hizwnb/ESw+HHw7i+D8Xw7+HHwns7m2vPix4l+Jlz8TPEvia9svDX/CEiOTw37/8A8G1H/BFr9qD/AIJbfH3Xv2hf22Ph/wCIPCvxJ/aS+D/ir4EfC/wx8M/EWgfFrwr8IYNL8aW/xK8d6X+1Jf8AgLTPEWk+DPEHxM0n4ReC/E37Pvj/AMH+PvE/wbg07TfHXw0+MXinwV8dviH8Bfhz4w//2Q=="
+	};
+
+	/**
+	 * This PDFGenerator class will be able to generate the PDF representation of the given
+	 * show, for the given dot.
+	 *
+	 * @param {Show} show
+	 * @param {String} dot is the label of the selected dot
+	 */
+	var PDFGenerator = function(show, dot) {
+	    this.pdf = jsPDF("portrait", "mm", "letter");
+	    this.show = show;
+	    this.dot = dot;
+	    this.sheets = show.getSheets();
+	};
+
+	/**
+	 * generate will generate a PDF for a specific dot, containing its movements,
+	 * positions, and continuities relevant to it.
+	 *
+	 * The function will end with a save call, which will prompt a new window and/or
+	 * a dialog box to download the generated PDF.
+	 */
+	PDFGenerator.prototype.generate = function() {
+	    for (var pageNum = 0; pageNum < Math.ceil(this.sheets.length / 4); pageNum++) {
+	        if (pageNum != 0) {
+	            this.pdf.addPage();
+	        }
+
+	        var pageSheets = []
+	        for (var i = 0; i < 4; i++) {
+	            var sheet = pageNum * 4 + i;
+	            if (sheet == this.sheets.length) {
+	                break;
+	            }
+	            pageSheets.push(this.sheets[sheet]);
+	        }
+
+	        this._addHeaders(pageNum + 1);
+
+	        for (var i = 0; i < pageSheets.length; i++) {
+	            var x = QUADRANT[i].x;
+	            var y = QUADRANT[i].y;
+	            var sheet = pageSheets[i];
+	            this._addDotContinuity(x, y, sheet);
+	            this._addIndividualContinuity(x, y, sheet);
+	            this._addMovementDiagram(x, y);
+	            this._addBirdseye(x, y);
+	            this._addSurroundingDots(x, y);
+	        }
+	    }
+	    // CHANGE TO this.pdf.save LATER
+	    this.pdf.output("dataurlnewwindow");
+	};
+
+	/**
+	 * Returns the width of a String, in whatever units this.pdf is currently using
+	 * @param {String} text
+	 * @param {int} size, font size the text will be in
+	 */
+	PDFGenerator.prototype._getTextWidth = function(text, size) {
+	    return this.pdf.getStringUnitWidth(text) * size/this.pdf.internal.scaleFactor
+	};
+
+	/**
+	 * Returns the height of text in the current fontsize, in whatever units this.pdf is
+	 * currently using
+	 * @param {int} size, font size the text will be in
+	 */
+	PDFGenerator.prototype._getTextHeight = function(size) {
+	    return size/this.pdf.internal.scaleFactor;
+	};
+
+	/**
+	 * Draws the headers on the PDF. Includes:
+	 *      - Stuntsheet number
+	 *      - Dot number
+	 *      - "California Marching Band: <show title>"
+	 *      - Page number
+	 *
+	 * @param {int} pageNum is the current 1-indexed page number
+	 */
+	PDFGenerator.prototype._addHeaders = function(pageNum) {
+	    var totalPages = Math.ceil(this.sheets.length/4);
+	    var _this = this; // for use in nested functions
+
+	    var header = {
+	        title: {
+	            label: "California Marching Band:",
+	            text: _this.show.getTitle(),
+	            size: 16,
+
+	            getX: function(text) {
+	                return WIDTH/2 - _this._getTextWidth(text, this.size)/2;
+	            },
+
+	            getY: function() {
+	                return header.y + header.paddingY + _this._getTextHeight(this.size);
+	            },
+
+	            getLineHeight: function() {
+	                return _this._getTextHeight(this.size) + 1;
+	            }
+	        },
+
+	        pageInfo: {
+	            size: 12,
+
+	            getWidth: function() {
+	                return _this._getTextWidth(pageNum + "/" + totalPages, this.size);
+	            },
+
+	            getHeight: function() {
+	                return _this._getTextHeight(this.size);
+	            },
+
+	            draw: function() {
+	                var numWidth = _this._getTextWidth(String(pageNum), this.size);
+	                _this.pdf.text(
+	                    String(pageNum),
+	                    this.x,
+	                    this.y - 1
+	                );
+	                _this.pdf.text(
+	                    "/",
+	                    this.x + numWidth - .3,
+	                    this.y
+	                );
+	                _this.pdf.text(
+	                    String(totalPages),
+	                    this.x + numWidth + .7,
+	                    this.y + 1
+	                );
+	            }
+	        },
+
+	        x: WIDTH * 1/6,
+	        y: 5,
+	        width: WIDTH * 2/3,
+	        height: _this._getTextHeight(16) * 3,
+	        paddingX: 3,
+	        paddingY: 1,
+
+	        draw: function() {
+	            /* box */
+	            _this.pdf.rect(this.x, this.y, this.width, this.height);
+
+	            /* title */
+	            _this.pdf.setFontSize(this.title.size);
+	            _this.pdf.text(
+	                this.title.label,
+	                this.title.getX(this.title.label),
+	                this.title.getY()
+	            );
+	            _this.pdf.text(
+	                this.title.text,
+	                this.title.getX(this.title.text),
+	                this.title.getY() + this.title.getLineHeight()
+	            );
+
+	            /* page info */
+	            _this.pdf.setFontSize(this.pageInfo.size);
+	            this.pageInfo.x = this.x + this.paddingX;
+	            this.pageInfo.y = this.y + this.height/2 + this.pageInfo.getHeight()/2;
+	            this.pageInfo.draw();
+
+	            this.pageInfo.x = WIDTH * 5/6 - this.paddingX - this.pageInfo.getWidth();
+	            this.pageInfo.draw();
+	        }
+	    };
+
+	    var sheetInfo = {
+	        marginX: 4,
+	        marginY: 3,
+	        size: 14,
+	        sheet: (pageNum - 1) * 4 + 1,
+
+	        getTop: function() {
+	            return this.marginY + this.height;
+	        },
+
+	        getBottom: function() {
+	            return this.getTop() + HEIGHT/2;
+	        },
+
+	        getLeft: function() {
+	            return this.marginX;
+	        },
+
+	        getRight: function() {
+	            return WIDTH - this.width;
+	        },
+
+	        hasNext: function() {
+	            return ++this.sheet <= _this.sheets.length;
+	        },
+
+	        draw: function(x, y) {
+	            _this.pdf.text("SS " + this.sheet + "/" + _this.sheets.length, x, y);
+	            _this.pdf.text("Dot " + _this.dot, x, y + _this._getTextHeight(this.size));
+	        }
+	    };
+
+	    /* Title and Page information */
+	    header.draw();
+
+	    /* Stuntsheet and Dot Info */
+	    sheetInfo.height = _this._getTextHeight(sheetInfo.size);
+	    sheetInfo.width = _this._getTextWidth("SS 00/00", sheetInfo.size);
+
+	    sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getTop());
+
+	    if (sheetInfo.hasNext()) {
+	        sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getBottom());
+	    }
+
+	    if (sheetInfo.hasNext()) {
+	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getTop());
+	    }
+
+	    if (sheetInfo.hasNext()) {
+	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getBottom());
+	    }
+	};
+
+	/**
+	 * Writes one stuntsheet's continuity for the given dot type on the PDF. Includes:
+	 *      - Dot circle type
+	 *      - Overall Continuity
+	 *      - Measure/beat number
+	 *
+	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
+	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
+	 * @param {Sheet} sheet the current sheet
+	 */
+	PDFGenerator.prototype._addDotContinuity = function(quadrantX, quadrantY, sheet) {
+	    var _this = this; // for use in nested functions
+
+	    var box = {
+	        paddingX: 2,
+	        paddingY: 1,
+
+	        draw: function(height) {
+	            _this.pdf.rect(quadrantX, quadrantY, QUADRANT_WIDTH, height);
+	        }
+	    };
+
+	    var text = {
+	        x: quadrantX + box.paddingX,
+	        y: quadrantY + box.paddingY,
+	        size: 10,
+
+	        // width is the width of the containing box
+	        draw: function() {
+	            var _size = this.size;
+	            var dotType = sheet.getDotType(_this.dot);
+	            var dotImage = DOT_DATA[dotType];
+	            var maxWidth = QUADRANT_WIDTH - box.paddingX*2 - 6;
+
+	            var continuities = sheet.getContinuityTexts(dotType);
+
+	            // fail-safe for sheets without Continuity Texts
+	            if (typeof continuities === "undefined") {
+	                box.draw(_this._getTextHeight(_size) + box.paddingY * 2 + 1);
+	                return;
+	            }
+
+	            continuities = continuities.map(function(text) {
+	                while (_this._getTextWidth(text, _size) > maxWidth) {
+	                    _size--;
+	                }
+
+	                return text;
+	            });
+
+	            var maxHeight = (QUADRANT_HEIGHT/5 - 2*box.paddingY - 3);
+	            while (continuities.length * _this._getTextHeight(_size) > maxHeight) {
+	                _size -= 1;
+	            }
+
+	            _this.pdf.addImage(
+	                dotImage,
+	                "JPEG",
+	                this.x,
+	                this.y
+	            );
+	            _this.pdf.setFontSize(this.size);
+	            this.x += 4;
+	            _this.pdf.text(
+	                ":",
+	                this.x,
+	                this.y + 3
+	            );
+	            _this.pdf.setFontSize(_size);
+	            this.x += 2;
+	            this.y += _this._getTextHeight(_size);
+	            _this.pdf.text(
+	                continuities,
+	                this.x,
+	                this.y
+	            );
+
+	            var height = _this._getTextHeight(_size) * continuities.length + 2*box.paddingY + 3;
+	            box.draw(height);
+	        }
+	    };
+
+	    text.draw();
+	};
+
+	/**
+	 * Writes the continuities for the selected dot on the PDF. Includes:
+	 *      - Movements
+	 *      - Total beats
+	 *      - Border between general movements, e.g. Stand and Play vs. Continuity
+	 *
+	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
+	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
+	 * @param {Sheet} sheet the current stuntsheet
+	 */
+	PDFGenerator.prototype._addIndividualContinuity = function(quadrantX, quadrantY, sheet) {
+	    var _this = this;
+
+	    var box = {
+	        height: QUADRANT_HEIGHT * 2/5,
+	        width: QUADRANT_WIDTH / 2,
+	        x: quadrantX,
+	        y: quadrantY + QUADRANT_HEIGHT / 5,
+	        paddingX: 2,
+	        paddingY: 1.5,
+	        size: 10,
+	        movements: [],
+
+	        draw: function() {
+	            _this.pdf.rect(this.x, this.y, this.height, this.width);
+	            var textHeight = _this._getTextHeight(this.size);
+	            var textY = this.y + this.paddingY + textHeight;
+	            var textX = this.x + this.paddingX;
+	            for (var i = 0; i < this.movements.length; i++) {
+	                var _size = this.size;
+	                var maxWidth = this.width - this.paddingX * 2;
+	                while (_this._getTextWidth(this.movements[i], _size) > maxWidth) {
+	                    _size--;
+	                }
+
+	                _this.pdf.setFontSize(_size);
+	                _this.pdf.text(
+	                    this.movements[i],
+	                    textX,
+	                    textY + (textHeight + 1) * i
+	                );
+	            }
+
+	            var totalLabel = sheet.getDuration() + " beats total";
+	            _this.pdf.text(
+	                totalLabel,
+	                quadrantX + this.width/2 - _this._getTextWidth(totalLabel, this.size)/2 - 3,
+	                textY - textHeight + this.height
+	            );
+	        }
+	    };
+
+	    var movements = sheet.getDotByLabel(this.dot).getMovementCommands();
+	    for (var i = 0; i < movements.length; i++) {
+	        var movement = movements[i];
+	        var orientation = movement.getOrientation();
+	        switch (orientation) {
+	            case 0:
+	                orientation = "E"; break;
+	            case 90:
+	                orientation = "S"; break;
+	            case 180:
+	                orientation = "W"; break;
+	            case 270:
+	                orientation = "N"; break;
+	            case "CW":
+	            case "CCW":
+	                break;
+	            default:
+	                orientation = "";
+	        }
+	        var start = movement.getStartPosition();
+	        var end = movement.getEndPosition();
+	        var deltaX = end.x - start.x;
+	        var deltaY = end.y - start.y;
+	        var dirX = (deltaX < 0) ? "S" : "N";
+	        var dirY = (deltaY < 0) ? "W" : "E";
+	        deltaX = Math.abs(deltaX);
+	        deltaY = Math.abs(deltaY);
+
+	        var text;
+
+	        // If movement is an Even, but behaves like a Move, treat as MovementCommandMove
+	        var isMoveCommand = function() {
+	            if (movement instanceof MovementCommandMove) {
+	                return true;
+	            }
+	            if (movement instanceof MovementCommandEven) {
+	                var steps = movement.getBeatDuration() / movement.getBeatsPerStep();
+	                if (steps == deltaX && deltaY == 0) {
+	                    return true;
+	                }
+	                if (steps == deltaY && deltaX == 0) {
+	                    return true;
+	                }
+	            }
+	            return false;
+	        }();
+
+	        if (isMoveCommand) {
+	            // MovementCommandMoves only move in one direction: X or Y
+	            if (deltaX == 0) {
+	                text = "Move " + deltaY + dirY;
+	            } else {
+	                text = "Move " + deltaX + dirX;
+	            }
+	        } else if (movement instanceof MovementCommandMarkTime) {
+	            if (movement.getBeatDuration() == 0) {
+	                continue;
+	            }
+	            text = "MT " + movement.getBeatDuration() + orientation;
+	        } else if (movement instanceof MovementCommandStand) {
+	            text = "Close " + movement.getBeatDuration() + orientation;
+	        } else if (movement instanceof MovementCommandEven) {
+	            text = "Even ";
+	            // If movement is a fraction of steps, simply say "NE" or "S"
+	            if (deltaX % 1 != 0 || deltaY % 1 != 0) {
+	                text += (deltaX != 0) ? dirX : "";
+	                text += (deltaY != 0) ? dirY : "";
+	            } else {
+	                // End result will be concat. of directions, e.g. "Even 8E, 4S"
+	                var moveTexts = [];
+	                if (deltaY != 0) {
+	                    moveTexts.push(deltaY + dirY);
+	                }
+	                if (deltaX != 0) {
+	                    moveTexts.push(deltaX + dirX);
+	                }
+	                text += moveTexts.join(", ");
+	            }
+	            // Error checking for an even move without movement in any direction
+	            if (text === "Even ") {
+	                text += "0";
+	            }
+	            var steps = movement.getBeatDuration() / movement.getBeatsPerStep();
+	            text += " (" + steps + " steps)";
+	        } else if (movement instanceof MovementCommandGoto) {
+	            text = "See Continuity (" + movement.getBeatDuration() + " beats)";
+	        } else if (movement instanceof MovementCommandArc) {
+	            text = "GT " + orientation + " " + movement.getAngle() + " deg. (" + movement.getBeatDuration() + " steps)";
+	        } else {
+	            throw new TypeError("Class not recognized: " + type);
+	        }
+	        box.movements.push(text);
+	    }
+	    box.draw();
+	};
+
+	/**
+	 * Draws the diagram for a selected dot's movements. Includes:
+	 *      - Circle for start
+	 *      - Cross for end
+	 *      - Path line and number of steps per movement
+	 *      - Yard lines, yard line markers
+	 *      - Hashes if in viewport
+	 *      - Zooming if big
+	 *      - Orientation EWNS; East is up
+	 *
+	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
+	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
+	 */
+	PDFGenerator.prototype._addMovementDiagram = function(quadrantX, quadrantY) {
+
+	};
+
+	/**
+	 * Draws the overall bird's eye view of the field. Includes:
+	 *      - Field outline, no yardlines/hashes
+	 *      - Form outline, continuous for 4-step EW, 2-step NS
+	 *      - Circle selected dot
+	 *      - Cross hairs for positions (4S N40, 2E WH)
+	 *
+	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
+	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
+	 */
+	PDFGenerator.prototype._addBirdseye = function(quadrantX, quadrantY) {
+
+	};
+
+	/**
+	 * Draws the dots surrounding the selected dot. Includes:
+	 *      - Orientation always E up (for now)
+	 *      - 4 step radius
+	 *      - Solid line cross hairs; selected dot in middle
+	 *      - Dot labels
+	 *      - Dot types
+	 *
+	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
+	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
+	 */
+	PDFGenerator.prototype._addSurroundingDots = function(quadrantX, quadrantY) {
+
+	};
+
+	module.exports = PDFGenerator;
+
+
+/***/ },
+/* 7 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1499,7 +2075,7 @@
 	module.exports = MusicAnimator;
 
 /***/ },
-/* 7 */
+/* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1507,7 +2083,7 @@
 	 *   generate a MusicPlayer that will play audio for us.
 	 */
 
-	var SMMusicPlayer = __webpack_require__(11);
+	var SMMusicPlayer = __webpack_require__(18);
 	 
 	/**
 	 * MusicPlayerFactory objects can create an appropriate MusicPlayer object
@@ -1530,7 +2106,7 @@
 	module.exports = MusicPlayerFactory;
 
 /***/ },
-/* 8 */
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1606,7 +2182,7 @@
 	module.exports = Version;
 
 /***/ },
-/* 9 */
+/* 10 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1624,19 +2200,19 @@
 	 *   
 	 */
 
-	var FileLoadSelector = __webpack_require__(12);
-	var InvalidFileTypeError = __webpack_require__(13);
-	var ClassUtils = __webpack_require__(14);
-	var Version = __webpack_require__(8);
-	var Dot = __webpack_require__(15);
-	var Sheet = __webpack_require__(16);
-	var Show = __webpack_require__(17);
-	var MovementCommandStand = __webpack_require__(18);
-	var MovementCommandMarkTime = __webpack_require__(19);
-	var MovementCommandArc = __webpack_require__(20);
-	var MovementCommandMove = __webpack_require__(21);
-	var MovementCommandGoto = __webpack_require__(22);
-	var MovementCommandEven = __webpack_require__(23);
+	var FileLoadSelector = __webpack_require__(19);
+	var InvalidFileTypeError = __webpack_require__(20);
+	var ClassUtils = __webpack_require__(21);
+	var Version = __webpack_require__(9);
+	var Dot = __webpack_require__(22);
+	var Sheet = __webpack_require__(23);
+	var Show = __webpack_require__(24);
+	var MovementCommandStand = __webpack_require__(14);
+	var MovementCommandMarkTime = __webpack_require__(16);
+	var MovementCommandArc = __webpack_require__(17);
+	var MovementCommandMove = __webpack_require__(13);
+	var MovementCommandGoto = __webpack_require__(15);
+	var MovementCommandEven = __webpack_require__(12);
 	 
 	/**
 	 * Every version of the Viewer File needs to be loaded in a different way -
@@ -1925,7 +2501,7 @@
 	module.exports = ViewerFileLoadSelector;
 
 /***/ },
-/* 10 */
+/* 11 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1943,11 +2519,11 @@
 	 *   
 	 */
 
-	var Version = __webpack_require__(8);
-	var FileLoadSelector = __webpack_require__(12);
-	var ClassUtils = __webpack_require__(14);
-	var TimedBeats = __webpack_require__(24);
-	var InvalidFileTypeError = __webpack_require__(13);
+	var Version = __webpack_require__(9);
+	var FileLoadSelector = __webpack_require__(19);
+	var ClassUtils = __webpack_require__(21);
+	var TimedBeats = __webpack_require__(25);
+	var InvalidFileTypeError = __webpack_require__(20);
 	 
 	/**
 	 * Every version of the Beats File needs to be loaded in a different way -
@@ -2058,7 +2634,293 @@
 	module.exports = BeatsFileLoadSelector;
 
 /***/ },
-/* 11 */
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandEven class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+	 
+	 
+	/**
+	 * A MovementCommand that defines an even-step transition between
+	 * two points.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The angle toward which the marcher is facing while
+	 *   executing the movement. The angle is measured in degrees relative to
+	 *   Grapher standard position. (@see MathUtils.js for definition of
+	 *   "Grapher standard position")
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The number of beats per each step.
+	 */
+	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
+	    this._orientation = orientation;
+	    this._beatsPerStep = beatsPerStep;
+	    var numSteps = Math.floor(beats / this._beatsPerStep);
+	    this._deltaXPerStep = (endX - startX) / numSteps;
+	    this._deltaYPerStep = (endY - startY) / numSteps;
+
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandEven, MovementCommand);
+
+	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
+	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
+	};
+
+	/**
+	 * Returns the number of beats in this movement
+	 * @return {int}
+	 */
+	MovementCommandEven.prototype.getBeatsPerStep = function() {
+	    return this._beatsPerStep;
+	}
+
+	module.exports = MovementCommandEven;
+
+/***/ },
+/* 13 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMove class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MathUtils = __webpack_require__(28);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+	 
+	/**
+	 * A MovementCommand which represents a constant movement in a
+	 * particular direction.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} stepSize the size of each step, relative to standard
+	 *   stepsize (standard stepsize is 8 steps per 5 yards).
+	 * @param {float} movementDirection The direction toward which the marcher
+	 *   will move. This is measured in degrees relative to Grapher standard
+	 *   position (@see MathUtils.js for a definition of "Grapher standard
+	 *   position").
+	 * @param {float} faceOrientation the direction toward which the marcher
+	 *   will face while executing the movement. This is measured in degrees,
+	 *   relative to Grapher standard position.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep the number of beats per each step of the movement.
+	 */ 
+	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
+	    movementDirection = MathUtils.toRadians(movementDirection);
+	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
+	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
+	    this._orientation = faceOrientation;
+	    this._beatsPerStep = beatsPerStep;
+	    numSteps = Math.floor(beats / this._beatsPerStep);
+	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
+	};
+
+	ClassUtils.extends(MovementCommandMove, MovementCommand);
+
+	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
+	    numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
+	};
+
+	module.exports = MovementCommandMove;
+
+/***/ },
+/* 14 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandStand class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+	 
+	/**
+	 * A MovementCommand representing a period of standing.
+	 * @param {float} x The x coordinate to stand at.
+	 * @param {float} y The y coordinate to stand at.
+	 * @param {float} orientation The angle at which the marcher will
+	 *   face while standing. This is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for a definition
+	 *   of "grapher standard position).
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandStand = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandStand, MovementCommand);
+
+	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	module.exports = MovementCommandStand;
+
+/***/ },
+/* 15 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandGoto class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+	 
+	/**
+	 * A MovementCommand that represents a "Goto" movement:
+	 * dots executing this movement simply jump to the movement's final
+	 * position and orientation at every beat of the movement.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The direction in which the marcher will face
+	 *   while executing the movement. The direction is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for the definition of
+	 *   "Grapher standard position").
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandGoto, MovementCommand);
+
+	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._endX, this._endY, this._orientation);
+	};
+
+	module.exports = MovementCommandGoto;
+
+/***/ },
+/* 16 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMarkTime class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+
+	 /**
+	  * A MovementCommand that represents a period of mark time.
+	  *
+	  * @param {float} x The x position where the mark time takes place.
+	  * @param {float} y The y position where the mark time takes place.
+	  * @param {float} orientation The direction toward which the marcher
+	  *   faces while marking time. This is measured in degrees,
+	  *   relative to Grapher standard position (@see MathUtils.js
+	  *   for a definition of "Grapher standard position").
+	  * @param {int} beats The duration of the movement, in beats.
+	  */
+	var MovementCommandMarkTime = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandMarkTime, MovementCommand);
+
+	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	module.exports = MovementCommandMarkTime;
+
+/***/ },
+/* 17 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandArc class.
+	 */
+
+	var ClassUtils = __webpack_require__(21);
+	var MathUtils = __webpack_require__(28);
+	var MovementCommand = __webpack_require__(26);
+	var AnimationState = __webpack_require__(27);
+	 
+	/**
+	 * A MovementCommandArc object represents a movement along the
+	 * perimeter of a circular arc.
+	 *
+	 * @param {float} startX The x coordinate of the movement's start position.
+	 * @param {float} startY The y coordinate of the movement's start position.
+	 * @param {float} centerX The x coordinate of the arc center.
+	 * @param {float} centerY The y coordinate of the arc center.
+	 * @param {float angleTorotate The amount to rotate about the center, in
+	 *   degrees. Positive values indicate a rotation in the clockwise
+	 *   direction, negative values indicate a rotation in the
+	 *   counterclockwise direction.
+	 * @param {float} facingOffset The difference between the direction
+	 *   in which a marcher is travelling and the direction in
+	 *   which a marcher is facing. This angle is measured in degrees,
+	 *   where positive angles indicate a clockwise offset, and
+	 *   negative angles indicate a counterclockwise one.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The duration of each step, in beats.
+	 */
+	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
+	    this._beatsPerStep = beatsPerStep;
+	    this._centerX = centerX;
+	    this._centerY = centerY;
+	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
+	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
+	    if (isNaN(this._startAngle)) {
+	        this._startAngle = 0;
+	    }
+	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
+	    this._movementIsCW = this._stepAngleDelta >= 0;
+	    this._orientationOffset = MathUtils.toRadians(facingOffset);
+	    var finalAnimState = this.getAnimationState(beats);
+	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandArc, MovementCommand);
+
+	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
+	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
+	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
+	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
+	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
+	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
+	};
+
+	/**
+	 * Returns the total angle of movement
+	 * @return {int} the rounded angle of movement
+	 */
+	MovementCommandArc.prototype.getAngle = function() {
+	    return Math.abs(Math.floor(MathUtils.toDegrees(this._numBeats * this._stepAngleDelta)));
+	};
+
+	module.exports = MovementCommandArc;
+
+/***/ },
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2066,9 +2928,9 @@
 	 *   type that uses SoundManager2 to play audio.
 	 */
 
-	var ClassUtils = __webpack_require__(14);
-	var SMSound = __webpack_require__(25);
-	var MusicPlayer = __webpack_require__(26);
+	var ClassUtils = __webpack_require__(21);
+	var SMSound = __webpack_require__(29);
+	var MusicPlayer = __webpack_require__(30);
 	 
 	/**
 	 * A MusicPlayer that uses SoundManager2.
@@ -2133,7 +2995,7 @@
 	module.exports = SMMusicPlayer;
 
 /***/ },
-/* 12 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2173,8 +3035,8 @@
 	 *         calling loadSelector.registerLoader(...)
 	 */
 
-	var ArrayUtils = __webpack_require__(30);
-	var Version = __webpack_require__(8);
+	var ArrayUtils = __webpack_require__(31);
+	var Version = __webpack_require__(9);
 	 
 	/**
 	 * Every version of a file needs to be loaded in a different way -
@@ -2252,7 +3114,7 @@
 	module.exports = FileLoadSelector;
 
 /***/ },
-/* 13 */
+/* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2269,7 +3131,7 @@
 	module.exports = InvalidFileTypeError;
 
 /***/ },
-/* 14 */
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2298,7 +3160,7 @@
 	module.exports = ClassUtils;
 
 /***/ },
-/* 15 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2316,7 +3178,7 @@
 	 *
 	 * @param {string} label The dot's label. This is also the label of
 	 *   the marcher associated with this dot.
-	 * @param {Array<MovemenetCommand>} movementCommands All of the MovementCommand
+	 * @param {Array<MovementCommand>} movementCommands All of the MovementCommand
 	 *   objects that this Dot will execute. The commands must be sorted in the
 	 *   order in which they will be executed.
 	 */
@@ -2333,6 +3195,15 @@
 	Dot.prototype.getLabel = function() {
 	    return this._label;
 	};
+
+	/**
+	 * Returns this dot's movement commands.
+	 *
+	 * @return {string} The dot's movements.
+	 */
+	Dot.prototype.getMovementCommands = function() {
+	    return this._movements;
+	}
 
 	/**
 	 * Returns an AnimationState object that describes the Dot's
@@ -2357,7 +3228,7 @@
 	module.exports = Dot;
 
 /***/ },
-/* 16 */
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2488,7 +3359,7 @@
 	module.exports = Sheet;
 
 /***/ },
-/* 17 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2604,274 +3475,7 @@
 	module.exports = Show;
 
 /***/ },
-/* 18 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandStand class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand representing a period of standing.
-	 * @param {float} x The x coordinate to stand at.
-	 * @param {float} y The y coordinate to stand at.
-	 * @param {float} orientation The angle at which the marcher will
-	 *   face while standing. This is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for a definition
-	 *   of "grapher standard position).
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandStand = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandStand, MovementCommand);
-
-	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	module.exports = MovementCommandStand;
-
-/***/ },
-/* 19 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMarkTime class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-
-	 /**
-	  * A MovementCommand that represents a period of mark time.
-	  *
-	  * @param {float} x The x position where the mark time takes place.
-	  * @param {float} y The y position where the mark time takes place.
-	  * @param {float} orientation The direction toward which the marcher
-	  *   faces while marking time. This is measured in degrees,
-	  *   relative to Grapher standard position (@see MathUtils.js
-	  *   for a definition of "Grapher standard position").
-	  * @param {int} beats The duration of the movement, in beats.
-	  */
-	var MovementCommandMarkTime = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMarkTime, MovementCommand);
-
-	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	module.exports = MovementCommandMarkTime;
-
-/***/ },
-/* 20 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandArc class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MathUtils = __webpack_require__(29);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommandArc object represents a movement along the
-	 * perimeter of a circular arc.
-	 *
-	 * @param {float} startX The x coordinate of the movement's start position.
-	 * @param {float} startY The y coordinate of the movement's start position.
-	 * @param {float} centerX The x coordinate of the arc center.
-	 * @param {float} centerY The y coordinate of the arc center.
-	 * @param {float angleTorotate The amount to rotate about the center, in
-	 *   degrees. Positive values indicate a rotation in the clockwise
-	 *   direction, negative values indicate a rotation in the
-	 *   counterclockwise direction.
-	 * @param {float} facingOffset The difference between the direction
-	 *   in which a marcher is travelling and the direction in
-	 *   which a marcher is facing. This angle is measured in degrees,
-	 *   where positive angles indicate a clockwise offset, and
-	 *   negative angles indicate a counterclockwise one.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The duration of each step, in beats.
-	 */
-	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
-	    this._beatsPerStep = beatsPerStep;
-	    this._centerX = centerX;
-	    this._centerY = centerY;
-	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
-	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
-	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
-	    this._movementIsCW = this._stepAngleDelta >= 0;
-	    this._orientationOffset = MathUtils.toRadians(facingOffset);
-	    var finalAnimState = this.getAnimationState(beats);
-	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandArc, MovementCommand);
-
-	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
-	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
-	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
-	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
-	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
-	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
-	};
-
-	module.exports = MovementCommandArc;
-
-/***/ },
-/* 21 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMove class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MathUtils = __webpack_require__(29);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand which represents a constant movement in a
-	 * particular direction.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} stepSize the size of each step, relative to standard
-	 *   stepsize (standard stepsize is 8 steps per 5 yards).
-	 * @param {float} movementDirection The direction toward which the marcher
-	 *   will move. This is measured in degrees relative to Grapher standard
-	 *   position (@see MathUtils.js for a definition of "Grapher standard
-	 *   position").
-	 * @param {float} faceOrientation the direction toward which the marcher
-	 *   will face while executing the movement. This is measured in degrees,
-	 *   relative to Grapher standard position.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep the number of beats per each step of the movement.
-	 */ 
-	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
-	    movementDirection = MathUtils.toRadians(movementDirection);
-	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
-	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
-	    this._orientation = faceOrientation;
-	    this._beatsPerStep = beatsPerStep;
-	    numSteps = Math.floor(beats / this._beatsPerStep);
-	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMove, MovementCommand);
-
-	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
-	    numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
-	};
-
-	module.exports = MovementCommandMove;
-
-/***/ },
-/* 22 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandGoto class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand that represents a "Goto" movement:
-	 * dots executing this movement simply jump to the movement's final
-	 * position and orientation at every beat of the movement.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The direction in which the marcher will face
-	 *   while executing the movement. The direction is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for the definition of
-	 *   "Grapher standard position").
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandGoto, MovementCommand);
-
-	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._endX, this._endY, this._orientation);
-	};
-
-	module.exports = MovementCommandGoto;
-
-/***/ },
-/* 23 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandEven class.
-	 */
-
-	var ClassUtils = __webpack_require__(14);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	 
-	/**
-	 * A MovementCommand that defines an even-step transition between
-	 * two points.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The angle toward which the marcher is facing while
-	 *   executing the movement. The angle is measured in degrees relative to
-	 *   Grapher standard position. (@see MathUtils.js for definition of
-	 *   "Grapher standard position")
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The number of beats per each step.
-	 */
-	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
-	    this._orientation = orientation;
-	    this._beatsPerStep = beatsPerStep;
-	    var numSteps = Math.floor(beats / this._beatsPerStep);
-	    this._deltaXPerStep = (endX - startX) / numSteps;
-	    this._deltaYPerStep = (endY - startY) / numSteps;
-	    
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandEven, MovementCommand);
-
-	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
-	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
-	};
-
-	module.exports = MovementCommandEven;
-
-/***/ },
-/* 24 */
+/* 25 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2881,7 +3485,7 @@
 	 *   beats in the music.
 	 */
 	 
-	 var ArrayUtils = __webpack_require__(30);
+	 var ArrayUtils = __webpack_require__(31);
 
 	/**
 	 * TimedBeats objects record a sequence of
@@ -2983,7 +3587,392 @@
 	module.exports = TimedBeats;
 
 /***/ },
-/* 25 */
+/* 26 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommand class.
+	 */
+
+	var Coordinate = __webpack_require__(33);
+
+	/**
+	 * MovementCommand class
+	 *
+	 * Represents an individual movement that a marcher executes during
+	 * a show.
+	 * 
+	 * This is an abstract class - do not make an instance of this
+	 * directly.
+	 *
+	 * @param {float} startX The x coordinate at which the movement starts.
+	 * @param {float} startY The y coordinate at which the movement starts.
+	 * @param {float} endX The x coordinate at which the movement starts.
+	 * @param {float} endY The y coordinate at which the movement starts.
+	 * @param {int} numBeats The duration of the movement, in beats. 
+	 **/
+	var MovementCommand = function(startX, startY, endX, endY, numBeats) {
+	    /**
+	     * The x component of the movement's start position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._startX = startX;
+	    
+	    /**
+	     * The y component of the movement's start position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._startY = startY;
+	    
+	    /**
+	     * The x component of the movement's end position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._endX = endX;
+	    
+	    /**
+	     * The y component of the movement's end position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._endY = endY;
+	    
+	    /**
+	     * The duration of the command, in beats.
+	     * @type {int}
+	     */
+	    this._numBeats = numBeats;
+	};
+
+	/**
+	 * Returns the position at which this movement starts.
+	 *
+	 * @return {Coordinate} The position where the movement begins.
+	 */
+	MovementCommand.prototype.getStartPosition = function() {
+	        return new Coordinate(this._startX, this._startY);
+	};
+
+	/**
+	 * Returns the position at which this movement ends.
+	 *
+	 * @return {Coordinate} The position where the movement ends.
+	 */
+	MovementCommand.prototype.getEndPosition = function() {
+	    return new Coordinate(this._endX, this._endY);
+	};
+
+	/**
+	 * Returns the number of beats required to complete this
+	 * command.
+	 *
+	 * @return {int} The duration of this command, in beats.
+	 */
+	MovementCommand.prototype.getBeatDuration = function() {
+	    return this._numBeats;
+	};
+
+	/**
+	 * Returns an AnimationState describing a marcher
+	 * who is executing this movement.
+	 *
+	 * @param {int} beatNum The beat of this movement that
+	 * the marcher is currently executing (relative
+	 * to the start of the movement).
+	 * @return {AnimationState} An AnimationState describing
+	 * a marcher who is executing this movement.
+	 */
+	MovementCommand.prototype.getAnimationState = function(beatNum) {
+	    console.log("getAnimationState called");
+	};
+
+	/**
+	 * Returns the orientation of this MovementCommand, however
+	 * this MovementCommand interprets "orientation" as, or null if
+	 * this MovementCommand doesn't interpret orientation
+	 *
+	 * @return {int|String|null} The orientation in degrees, clockwise direction, or null
+	 */
+	MovementCommand.prototype.getOrientation = function() {
+	    if (typeof this._orientation !== "undefined") {
+	        return this._orientation;
+	    } else if (this._movementIsCW !== "undefined") {
+	        return this._movementIsCW ? "CW" : "CCW";
+	    } else {
+	        return null;
+	    }
+	};
+
+	module.exports = MovementCommand;
+
+/***/ },
+/* 27 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the AnimationState struct.
+	 */
+
+	/**
+	 * An AnimationState struct describes the state of a dot at a specific time
+	 * in the show. It contains all information required to properly draw
+	 * the dot in the grapher.
+	 *
+	 * @param {float} posX The x position of the dot.
+	 * @param {float} posY The y position of the dot.
+	 * @param {float} facingAngle The angle at which the dot is oriented.
+	 */
+	var AnimationState = function(posX, posY, facingAngle) {
+	    this.x = posX;
+	    this.y = posY;
+	    this.angle = facingAngle;
+	};
+
+	module.exports = AnimationState;
+
+/***/ },
+/* 28 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines various functions and constants that are
+	 *   useful in mathematical calculations.
+	 *
+	 * NOTES ABOUT THE COORDINATE SYSTEM USED:
+	 * Unless otherwise specified, all coordinates are expected to be
+	 * measured according to the coordinate system used by the Grapher.
+	 * That is, the positive y-axis points downward, and the positive
+	 * x-axis points rightward.
+	 
+	 * NOTES ABOUT ANGLE MEASUREMENT:
+	 * Unless otherwise specified, angles are measured in the same way
+	 * as they are measured for the Grapher: clockwise from the positive
+	 * y-axis. Thoughout this file, this angle measurement scheme will be
+	 * referred to as being relative to "Grapher standard position." Note
+	 * that this position derives from the fact that facing east, in the context of
+	 * memorial stadium, is the default: 0 degrees in the Grapher standard position
+	 * is straight east, and 90 degrees is south, etc.
+	 */
+
+	 
+	/**
+	 * The collection of all of the utility functions and constants defined in this
+	 * file.
+	 * @type {object}
+	 */
+	MathUtils = {};
+
+	 
+	//=============================================
+	//===============-- CONSTANTS
+	//=============================================
+	 
+	/**
+	 * PI/2
+	 * @type {float}
+	 */
+	MathUtils.PI_OVER_TWO = Math.PI / 2;
+
+	/**
+	 * 2*PI
+	 * @type {float}
+	 */
+	MathUtils.TWO_PI = Math.PI * 2;
+
+	/**
+	 * When multiplied by an angle measured in degrees,
+	 * this will produce an equivalent angle measured
+	 * in radians.
+	 * @type {float}
+	 */
+	MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR = Math.PI/180;
+
+	/**
+	 * When multiplied by an angle measured in radians,
+	 * this will produce an equivalent angle measured
+	 * in degrees.
+	 * @type {float}
+	 */
+	MathUtils.RADIANS_TO_DEGREES_CONV_FACTOR = 1 / MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR;
+
+	//=============================================
+	//===============-- FUNCTIONS
+	//=============================================
+
+	/**
+	 * Calculates the squared distance between two points.
+	 *
+	 * @param {float} fromX The x coordinate of the first point.
+	 * @param {float} fromY The y coordinate of the first point.
+	 * @param {float} toX The x coordinate of the second point.
+	 * @param {float} toY The y coordinate of the second point.
+	 * @return {float} The squared distance between points:
+	 *   {fromX, fromY} and  {toX, toY}.
+	 */
+	MathUtils.calcSquaredDistance = function(fromX, fromY, toX, toY) {
+	    var deltaX = toX - fromX;
+	    var deltaY = toY - fromY;
+	    return (deltaX * deltaX) + (deltaY * deltaY);
+	};
+
+	/**
+	 * Calculates the distance between two points.
+	 *
+	 * @param {float} fromX The x coordinate of the first point.
+	 * @param {float} fromY The y coordinate of the first point.
+	 * @param {float} toX The x coordinate of the second point.
+	 * @param {float} toY The y coordinate of the second point.
+	 * @return {float} The distance between points:
+	 *   {fromX, fromY} and  {toX, toY}.
+	 */
+	MathUtils.calcDistance = function(fromX, fromY, toX, toY) {
+	    return Math.sqrt(this.calcSquaredDistance(fromX, fromY, toX, toY));
+	};
+
+	/**
+	 * Calculates the angle toward which a vector is facing, in radians.
+	 * The angle is measured relative to Grapher standard position.
+	 *
+	 * @param {float} vectorX The x component of the vector.
+	 * @param {float} vectorY The y component of the vector.
+	 * @return {float} The angle toward which the vector is pointing, in
+	 * radians.
+	 */
+	MathUtils.calcAngle = function(vectorX, vectorY) {
+	    var angle = Math.atan(-vectorX / vectorY);
+	    if (vectorY < 0) {
+	        angle += Math.PI;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * Returns the angle to which a point has been rotated
+	 * around a center.
+	 *
+	 * @param {float} pointX The x coordinate of the rotated point.
+	 * @param {float} pointY The y coordinate of the rotated point.
+	 * @param {float} centerX The x coordinate of the center.
+	 * @param {float} centerY The y coordinate of the center.
+	 * @return {float} The angle to which a point has been rotated
+	 *   around a center. The angle is measured in radians,
+	 *   relative to Grapher standard position.
+	 */
+	MathUtils.calcAngleAbout = function(pointX, pointY, centerX, centerY) {
+	    return this.calcAngle(pointX - centerX, pointY - centerY);
+	};
+
+	/**
+	 * Calculates the x position of a point rotated along the unit
+	 * circle by an angle measured relative to Grapher standard
+	 * position.
+	 *
+	 * @param {float} angle The angle by which to rotate the point,
+	 *   measured in radians relative to Grapher standard position.
+	 * @return {float} The final x position of the point, rotated along the
+	 *   unit circle.
+	 */
+	MathUtils.calcRotatedXPos = function(angle) {
+	    return -Math.sin(angle);
+	};
+
+	/**
+	 * Calculates the y position of a point rotated along the unit
+	 * circle by an angle measured relative to Grapher standard
+	 * position.
+	 *
+	 * @param {float} angle The angle by which to rotate the point,
+	 *   measured in radians relative to Grapher standard position.
+	 * @return {float} The final y position of the point, rotated along the
+	 *   unit circle.
+	 */
+	MathUtils.calcRotatedYPos = function(angle) {
+	    return Math.cos(angle);
+	};
+
+	/**
+	 * Rotates an angle by a quarter-turn in
+	 * a specified direction.
+	 *
+	 * @param {float} angle The angle to rotate, in radians.
+	 * @param {bool} isCW True if the angle should be
+	 *   rotated clockwise; false if the angle should 
+	 *   be rotated counter-clockwise.
+	 * @return The angle, rotated by a quarter turn.
+	 *   This angle is measured in radians.
+	 */
+	MathUtils.quarterTurn = function(angle, isCW) {
+	    return angle + ((isCW * 2 - 1) * this.PI_OVER_TWO);
+	};
+
+	/**
+	 * For an angle measured in degrees, will
+	 * find an equivalent angle between 0
+	 * and 360 degrees.
+	 *
+	 * @param {float} angle An angle measured in degrees.
+	 * @return {float} An equivalent angle between 0 and
+	 *   360 degrees.
+	 */
+	MathUtils.wrapAngleDegrees = function(angle) {
+	    while (angle >= 360) {
+	        angle -= 360;
+	    }
+	    while (angle < 0) {
+	        angle += 360;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * For an angle measured in radians, will
+	 * find an equivalent angle between 0
+	 * and 2*PI radians.
+	 *
+	 * @param {float} angle An angle measured in radians.
+	 * @return {float} An equivalent angle between
+	 *   0 and 2*PI radians.
+	 */
+	MathUtils.wrapAngleRadians = function(angle) {
+	    while (angle >= TWO_PI) {
+	        angle -= this.TWO_PI;
+	    }
+	    while (angle < 0) {
+	        angle += this.TWO_PI;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * Converts an angle measured in degrees to one
+	 * measured in radians.
+	 *
+	 * @param {float} angle An angle, measured in degrees.
+	 * @return {float} The angle, measured in radians.
+	 */
+	MathUtils.toRadians = function(angle) {
+	    return angle * this.DEGREES_TO_RADIANS_CONV_FACTOR;
+	};
+
+	/**
+	 * Converts an angle measured in radians to one
+	 * measured in degrees.
+	 *
+	 * @param {float} angle An angle, measured in radians.
+	 * @return {float} The angle, measured in degrees.
+	 */
+	MathUtils.toDegrees = function(angle) {
+	    return angle * this.RADIANS_TO_DEGREES_CONV_FACTOR;
+	};
+
+	module.exports = MathUtils;
+
+
+/***/ },
+/* 29 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2991,8 +3980,8 @@
 	 *   SoundManager2.
 	 */
 	 
-	var Sound = __webpack_require__(31);
-	var ClassUtils = __webpack_require__(14);
+	var Sound = __webpack_require__(32);
+	var ClassUtils = __webpack_require__(21);
 	 
 	/**
 	 * SMSound objects play music through SoundManager2.
@@ -3281,7 +4270,7 @@
 	module.exports = SMSound;
 
 /***/ },
-/* 26 */
+/* 30 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3342,376 +4331,7 @@
 	module.exports = MusicPlayer;
 
 /***/ },
-/* 27 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommand class.
-	 */
-
-	var Coordinate = __webpack_require__(32);
-
-	/**
-	 * MovementCommand class
-	 *
-	 * Represents an individual movement that a marcher executes during
-	 * a show.
-	 * 
-	 * This is an abstract class - do not make an instance of this
-	 * directly.
-	 *
-	 * @param {float} startX The x coordinate at which the movement starts.
-	 * @param {float} startY The y coordinate at which the movement starts.
-	 * @param {float} endX The x coordinate at which the movement starts.
-	 * @param {float} endY The y coordinate at which the movement starts.
-	 * @param {int} numBeats The duration of the movement, in beats. 
-	 **/
-	var MovementCommand = function(startX, startY, endX, endY, numBeats) {
-	    /**
-	     * The x component of the movement's start position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._startX = startX;
-	    
-	    /**
-	     * The y component of the movement's start position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._startY = startY;
-	    
-	    /**
-	     * The x component of the movement's end position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._endX = endX;
-	    
-	    /**
-	     * The y component of the movement's end position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._endY = endY;
-	    
-	    /**
-	     * The duration of the command, in beats.
-	     * @type {int}
-	     */
-	    this._numBeats = numBeats;
-	};
-
-	/**
-	 * Returns the position at which this movement starts.
-	 *
-	 * @return {Coordinate} The position where the movement begins.
-	 */
-	MovementCommand.prototype.getStartPosition = function() {
-	        return new Coordinate(this._startX, this._startY);
-	};
-
-	/**
-	 * Returns the position at which this movement ends.
-	 *
-	 * @return {Coordinate} The position where the movement ends.
-	 */
-	MovementCommand.prototype.getEndPosition = function() {
-	    return new Coordinate(this._endX, this._endY);
-	};
-
-	/**
-	 * Returns the number of beats required to complete this
-	 * command.
-	 *
-	 * @return {int} The duration of this command, in beats.
-	 */
-	MovementCommand.prototype.getBeatDuration = function() {
-	    return this._numBeats;
-	};
-
-	/**
-	 * Returns an AnimationState describing a marcher
-	 * who is executing this movement.
-	 *
-	 * @param {int} beatNum The beat of this movement that
-	 * the marcher is currently executing (relative
-	 * to the start of the movement).
-	 * @return {AnimationState} An AnimationState describing
-	 * a marcher who is executing this movement.
-	 */
-	MovementCommand.prototype.getAnimationState = function(beatNum) {
-	    console.log("getAnimationState called");
-	};
-
-
-	module.exports = MovementCommand;
-
-/***/ },
-/* 28 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the AnimationState struct.
-	 */
-
-	/**
-	 * An AnimationState struct describes the state of a dot at a specific time
-	 * in the show. It contains all information required to properly draw
-	 * the dot in the grapher.
-	 *
-	 * @param {float} posX The x position of the dot.
-	 * @param {float} posY The y position of the dot.
-	 * @param {float} facingAngle The angle at which the dot is oriented.
-	 */
-	var AnimationState = function(posX, posY, facingAngle) {
-	    this.x = posX;
-	    this.y = posY;
-	    this.angle = facingAngle;
-	};
-
-	module.exports = AnimationState;
-
-/***/ },
-/* 29 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines various functions and constants that are
-	 *   useful in mathematical calculations.
-	 *
-	 * NOTES ABOUT THE COORDINATE SYSTEM USED:
-	 * Unless otherwise specified, all coordinates are expected to be
-	 * measured according to the coordinate system used by the Grapher.
-	 * That is, the positive y-axis points downward, and the positive
-	 * x-axis points rightward.
-	 
-	 * NOTES ABOUT ANGLE MEASUREMENT:
-	 * Unless otherwise specified, angles are measured in the same way
-	 * as they are measured for the Grapher: clockwise from the positive
-	 * y-axis. Thoughout this file, this angle measurement scheme will be
-	 * referred to as being relative to "Grapher standard position." Note
-	 * that this position derives from the fact that facing east, in the context of
-	 * memorial stadium, is the default: 0 degrees in the Grapher standard position
-	 * is straight east, and 90 degrees is south, etc.
-	 */
-
-	 
-	/**
-	 * The collection of all of the utility functions and constants defined in this
-	 * file.
-	 * @type {object}
-	 */
-	MathUtils = {};
-
-	 
-	//=============================================
-	//===============-- CONSTANTS
-	//=============================================
-	 
-	/**
-	 * PI/2
-	 * @type {float}
-	 */
-	MathUtils.PI_OVER_TWO = Math.PI / 2;
-
-	/**
-	 * 2*PI
-	 * @type {float}
-	 */
-	MathUtils.TWO_PI = Math.PI * 2;
-
-	/**
-	 * When multiplied by an angle measured in degrees,
-	 * this will produce an equivalent angle measured
-	 * in radians.
-	 * @type {float}
-	 */
-	MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR = Math.PI/180;
-
-	/**
-	 * When multiplied by an angle measured in radians,
-	 * this will produce an equivalent angle measured
-	 * in degrees.
-	 * @type {float}
-	 */
-	MathUtils.RADIANS_TO_DEGREES_CONV_FACTOR = 1 / MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR;
-
-	//=============================================
-	//===============-- FUNCTIONS
-	//=============================================
-
-	/**
-	 * Calculates the squared distance between two points.
-	 *
-	 * @param {float} fromX The x coordinate of the first point.
-	 * @param {float} fromY The y coordinate of the first point.
-	 * @param {float} toX The x coordinate of the second point.
-	 * @param {float} toY The y coordinate of the second point.
-	 * @return {float} The squared distance between points:
-	 *   {fromX, fromY} and  {toX, toY}.
-	 */
-	MathUtils.calcSquaredDistance = function(fromX, fromY, toX, toY) {
-	    var deltaX = toX - fromX;
-	    var deltaY = toY - fromY;
-	    return (deltaX * deltaX) + (deltaY * deltaY);
-	};
-
-	/**
-	 * Calculates the distance between two points.
-	 *
-	 * @param {float} fromX The x coordinate of the first point.
-	 * @param {float} fromY The y coordinate of the first point.
-	 * @param {float} toX The x coordinate of the second point.
-	 * @param {float} toY The y coordinate of the second point.
-	 * @return {float} The distance between points:
-	 *   {fromX, fromY} and  {toX, toY}.
-	 */
-	MathUtils.calcDistance = function(fromX, fromY, toX, toY) {
-	    return Math.sqrt(this.calcSquaredDistance(fromX, fromY, toX, toY));
-	};
-
-	/**
-	 * Calculates the angle toward which a vector is facing, in radians.
-	 * The angle is measured relative to Grapher standard position.
-	 *
-	 * @param {float} vectorX The x component of the vector.
-	 * @param {float} vectorY The y component of the vector.
-	 * @return {float} The angle toward which the vector is pointing, in
-	 * radians.
-	 */
-	MathUtils.calcAngle = function(vectorX, vectorY) {
-	    var angle = Math.atan(-vectorX / vectorY);
-	    if (vectorY < 0) {
-	        angle += Math.PI;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * Returns the angle to which a point has been rotated
-	 * around a center.
-	 *
-	 * @param {float} pointX The x coordinate of the rotated point.
-	 * @param {float} pointY The y coordinate of the rotated point.
-	 * @param {float} centerX The x coordinate of the center.
-	 * @param {float} centerY The y coordinate of the center.
-	 * @return {float} The angle to which a point has been rotated
-	 *   around a center. The angle is measured in radians,
-	 *   relative to Grapher standard position.
-	 */
-	MathUtils.calcAngleAbout = function(pointX, pointY, centerX, centerY) {
-	    return this.calcAngle(pointX - centerX, pointY - centerY);
-	};
-
-	/**
-	 * Calculates the x position of a point rotated along the unit
-	 * circle by an angle measured relative to Grapher standard
-	 * position.
-	 *
-	 * @param {float} angle The angle by which to rotate the point,
-	 *   measured in radians relative to Grapher standard position.
-	 * @return {float} The final x position of the point, rotated along the
-	 *   unit circle.
-	 */
-	MathUtils.calcRotatedXPos = function(angle) {
-	    return -Math.sin(angle);
-	};
-
-	/**
-	 * Calculates the y position of a point rotated along the unit
-	 * circle by an angle measured relative to Grapher standard
-	 * position.
-	 *
-	 * @param {float} angle The angle by which to rotate the point,
-	 *   measured in radians relative to Grapher standard position.
-	 * @return {float} The final y position of the point, rotated along the
-	 *   unit circle.
-	 */
-	MathUtils.calcRotatedYPos = function(angle) {
-	    return Math.cos(angle);
-	};
-
-	/**
-	 * Rotates an angle by a quarter-turn in
-	 * a specified direction.
-	 *
-	 * @param {float} angle The angle to rotate, in radians.
-	 * @param {bool} isCW True if the angle should be
-	 *   rotated clockwise; false if the angle should 
-	 *   be rotated counter-clockwise.
-	 * @return The angle, rotated by a quarter turn.
-	 *   This angle is measured in radians.
-	 */
-	MathUtils.quarterTurn = function(angle, isCW) {
-	    return angle + ((isCW * 2 - 1) * this.PI_OVER_TWO);
-	};
-
-	/**
-	 * For an angle measured in degrees, will
-	 * find an equivalent angle between 0
-	 * and 360 degrees.
-	 *
-	 * @param {float} angle An angle measured in degrees.
-	 * @return {float} An equivalent angle between 0 and
-	 *   360 degrees.
-	 */
-	MathUtils.wrapAngleDegrees = function(angle) {
-	    while (angle >= 360) {
-	        angle -= 360;
-	    }
-	    while (angle < 0) {
-	        angle += 360;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * For an angle measured in radians, will
-	 * find an equivalent angle between 0
-	 * and 2*PI radians.
-	 *
-	 * @param {float} angle An angle measured in radians.
-	 * @return {float} An equivalent angle between
-	 *   0 and 2*PI radians.
-	 */
-	MathUtils.wrapAngleRadians = function(angle) {
-	    while (angle >= TWO_PI) {
-	        angle -= this.TWO_PI;
-	    }
-	    while (angle < 0) {
-	        angle += this.TWO_PI;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * Converts an angle measured in degrees to one
-	 * measured in radians.
-	 *
-	 * @param {float} angle An angle, measured in degrees.
-	 * @return {float} The angle, measured in radians.
-	 */
-	MathUtils.toRadians = function(angle) {
-	    return angle * this.DEGREES_TO_RADIANS_CONV_FACTOR;
-	};
-
-	/**
-	 * Converts an angle measured in radians to one
-	 * measured in degrees.
-	 *
-	 * @param {float} angle An angle, measured in radians.
-	 * @return {float} The angle, measured in degrees.
-	 */
-	MathUtils.toDegrees = function(angle) {
-	    return angle * this.RADIANS_TO_DEGREES_CONV_FACTOR;
-	};
-
-	module.exports = MathUtils;
-
-
-/***/ },
-/* 30 */
+/* 31 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3928,7 +4548,7 @@
 	module.exports = ArrayUtils;
 
 /***/ },
-/* 31 */
+/* 32 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4082,7 +4702,7 @@
 
 
 /***/ },
-/* 32 */
+/* 33 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**

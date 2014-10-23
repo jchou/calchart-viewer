@@ -37,7 +37,7 @@
 }
 .header .header-title .title {
   font-size: 30px;
-  width: 312px;
+  width: 280.8px;
 }
 .header .header-title .version {
   height: 30px;
@@ -46,7 +46,7 @@
 }
 .header .header-files .files-description {
   font-size: 20px;
-  width: 416px;
+  width: 447.2px;
 }
 .header .header-files .files-description .file-input-error {
   display: none;
@@ -58,7 +58,7 @@
 }
 .header .header-files .load-controls .files {
   display: inline-block;
-  width: 249.6px;
+  width: 268.32px;
   margin-top: 10px;
 }
 .header .header-files .load-controls .files .file-input {
@@ -82,7 +82,7 @@
   background: white;
   border: 1px solid #003262;
   padding: 3px;
-  width: 145.6px;
+  width: 156.52px;
   -webkit-appearance: none;
   cursor: pointer;
 }
@@ -90,7 +90,7 @@
   display: inline-block;
   vertical-align: top;
   font-size: 14px;
-  width: 166.4px;
+  width: 178.88px;
   text-align: center;
 }
 .header .header-files .load-controls .autoload label {
