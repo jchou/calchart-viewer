@@ -8,6 +8,7 @@ var TimedBeatsUtils = require("./TimedBeatsUtils");
 var MusicAnimator = require("./player/MusicAnimator");
 var MusicPlayerFactory = require("./player/MusicPlayerFactory");
 var AnimationStateDelegate = require("./AnimationStateDelegate");
+var PDFGenerator = require("./PDFGenerator");
 
 /**
  * The ApplicationController is the backbone of how functional components
@@ -57,7 +58,7 @@ ApplicationController.prototype.setShow = function (show) {
  * @param {int} the year of the desired shows
  */
 ApplicationController.prototype.getShows = function(year) {
-    var url = "http://calchart-server.herokuapp.com/list/" + year;
+    var url = "https://calchart-server.herokuapp.com/list/" + year;
     $.getJSON(url, function(data) {
         var options = data.shows.map(function(show) {
             return "<option value='" + show["index_name"] + "'>" + show["title"] + "</option>";
@@ -73,7 +74,7 @@ ApplicationController.prototype.getShows = function(year) {
  * @param {String} show is the index_name of the show to get
  */
 ApplicationController.prototype.autoloadShow = function(index_name) {
-    var url = "http://calchart-server.herokuapp.com/";
+    var url = "https://calchart-server.herokuapp.com/";
     var _this = this;
     $.getJSON(url + "chart/" + index_name, function(data) {
         var response = JSON.stringify(data);
@@ -170,7 +171,7 @@ ApplicationController.prototype._syncWithDelegate = function() {
 
 /**
  * Update the DOM with the correct stuntsheet number, beat number, and number
- * of beats in teh current stuntsheet depending on the state of the
+ * of beats in the current stuntsheet depending on the state of the
  * animationStateDelegate.
  */
 ApplicationController.prototype._updateUIWithAnimationState = function () {
@@ -186,6 +187,8 @@ ApplicationController.prototype._updateUIWithAnimationState = function () {
     }
     if (this._animationStateDelegate.getSelectedDot() !== null) {
         var selectedDot = this._animationStateDelegate.getSelectedDot();
+        //$(".js-selected-dot-label").parent().removeClass("disabled");
+        $(".js-selected-dot-label").text(selectedDot);
         var currentSheet = this._animationStateDelegate.getCurrentSheet();
         var typeOfDot = currentSheet.getDotType(selectedDot);
         var continuities = currentSheet.getContinuityTexts(typeOfDot);
@@ -198,6 +201,7 @@ ApplicationController.prototype._updateUIWithAnimationState = function () {
             $(".js-dot-continuity").html("");
         }
     } else {
+        $(".js-selected-dot-label").parent().addClass("disabled");
         $(".js-dot-continuity").html("");
     }
 };
@@ -252,9 +256,9 @@ ApplicationController.prototype.init = function () {
  * @param {String} fileName
  */
 ApplicationController.prototype._setFileInputText = function(selector, fileName) {
-    const MAX_LENGTH = 15;
+    var MAX_LENGTH = 16;
     if (fileName.length > MAX_LENGTH) {
-        fileName = fileName.substring(0, MAX_LENGTH + 1) + "...";
+        fileName = fileName.substring(0, MAX_LENGTH) + "...";
     }
     $(selector).text(fileName);
 };
@@ -443,6 +447,14 @@ ApplicationController.prototype._updateAnimationControl = function() {
             $(".js-animate").addClass("disabled");
         }
     }
+};
+
+/**
+ * Passes relevant information to the PDFGenerator module which will open a PDF
+ * document that contains the selected dot's continuity for the entire show.
+ */
+ApplicationController.prototype.generatePDF = function() {
+    new PDFGenerator(this._show, this._animationStateDelegate.getSelectedDot()).generate();
 };
 
 module.exports = ApplicationController;
