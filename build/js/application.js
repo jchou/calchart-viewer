@@ -324,7 +324,12 @@
 	 */
 	ApplicationController.prototype._updateUIWithAnimationState = function () {
 	    $(".js-stuntsheet-total").text(this._animationStateDelegate.getCurrentSheet().getDuration());
-	    $(".js-beat-number").text(this._animationStateDelegate.getCurrentBeatNum() + 1);
+	    var currBeat = this._animationStateDelegate.getCurrentBeatNum();
+	    if (currBeat === 0) {
+	        $(".js-beat-number").text("Hup");
+	    } else {
+	        $(".js-beat-number").text(currBeat);
+	    }
 	    var sheetNum = this._animationStateDelegate.getCurrentSheetNum() + 1;
 	    var sheetPage = sheetNum + "/" + this.getShow().getNumSheets();
 	    var sheetLabel = this._animationStateDelegate.getCurrentSheet().getSheetLabel();
@@ -608,6 +613,7 @@
 	};
 
 	module.exports = ApplicationController;
+
 
 /***/ },
 /* 2 */
@@ -970,8 +976,8 @@
 	 *   used to create and manage Show objects.
 	 */
 
-	 var ViewerFileLoadSelector = __webpack_require__(10);
-	 var Version = __webpack_require__(9);
+	 var ViewerFileLoadSelector = __webpack_require__(16);
+	 var Version = __webpack_require__(15);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -1005,8 +1011,8 @@
 	 *   used to create and manage TimedBeats objects.
 	 */
 
-	 var BeatsFileLoadSelector = __webpack_require__(11);
-	 var Version = __webpack_require__(9);
+	 var BeatsFileLoadSelector = __webpack_require__(17);
+	 var Version = __webpack_require__(15);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -1269,21 +1275,21 @@
 	 * @constant DOT_DATA contains the JPEG image data for the different dot types
 	 */
 
-	var MovementCommandEven = __webpack_require__(12);
-	var MovementCommandMove = __webpack_require__(13);
-	var MovementCommandStand = __webpack_require__(14);
-	var MovementCommandGoto = __webpack_require__(15);
-	var MovementCommandMarkTime = __webpack_require__(16);
-	var MovementCommandArc = __webpack_require__(17);
+	var MovementCommandEven = __webpack_require__(9);
+	var MovementCommandMove = __webpack_require__(10);
+	var MovementCommandStand = __webpack_require__(11);
+	var MovementCommandGoto = __webpack_require__(12);
+	var MovementCommandMarkTime = __webpack_require__(13);
+	var MovementCommandArc = __webpack_require__(14);
 
 	/* CONSTANTS: DON'T CHANGE */
 	var WIDTH = 215.9;
 	var HEIGHT = 279.4;
 
 	var QUADRANT = [
-	    {x: 3, y: 24},                 // top left
-	    {x: 3, y: HEIGHT/2 + 16},      // bottom left
+	    {x: 3, y: 24},                     // top left
 	    {x: WIDTH/2 + 3, y: 24},           // top right
+	    {x: 3, y: HEIGHT/2 + 16},          // bottom left
 	    {x: WIDTH/2 + 3, y: HEIGHT/2 + 16} // bottom right
 	];
 	var QUADRANT_HEIGHT = HEIGHT/2 - 22;
@@ -1407,7 +1413,7 @@
 	            size: 12,
 
 	            getWidth: function() {
-	                return _this._getTextWidth(pageNum + "/" + totalPages, this.size);
+	                return _this._getTextWidth("Page " + pageNum + "/" + totalPages, this.size);
 	            },
 
 	            getHeight: function() {
@@ -1415,20 +1421,27 @@
 	            },
 
 	            draw: function() {
-	                var numWidth = _this._getTextWidth(String(pageNum), this.size);
+	                _this.pdf.text(
+	                    "Page ",
+	                    this.x,
+	                    this.y
+	                )
+	                this.x += _this._getTextWidth("Page ", this.size);
 	                _this.pdf.text(
 	                    String(pageNum),
 	                    this.x,
 	                    this.y - 1
 	                );
+	                this.x += _this._getTextWidth(String(pageNum), this.size);
 	                _this.pdf.text(
 	                    "/",
-	                    this.x + numWidth - .3,
+	                    this.x,
 	                    this.y
 	                );
+	                this.x += _this._getTextWidth("/", this.size);
 	                _this.pdf.text(
 	                    String(totalPages),
-	                    this.x + numWidth + .7,
+	                    this.x,
 	                    this.y + 1
 	                );
 	            }
@@ -1511,11 +1524,11 @@
 	    sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getTop());
 
 	    if (sheetInfo.hasNext()) {
-	        sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getBottom());
+	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getTop());
 	    }
 
 	    if (sheetInfo.hasNext()) {
-	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getTop());
+	        sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getBottom());
 	    }
 
 	    if (sheetInfo.hasNext()) {
@@ -1924,14 +1937,21 @@
 	 */
 	MusicAnimator.prototype.start = function() {
 	    this.stop();
-	    var overallBeat = 0;
+	    // beat "0" of a given stuntsheet is really the last beat of the stuntsheet before
+	    var overallBeat = -1;
 	    var show = this._animStateDelegate.getShow();
 	    for (var sheet = 0; sheet < this._animStateDelegate.getCurrentSheetNum(); sheet++) {
 	        overallBeat += show.getSheet(sheet).getDuration();
 	    }
 	    overallBeat += this._animStateDelegate.getCurrentBeatNum();
 	    if (this._animStateDelegate.hasNextBeat() && overallBeat < this._beats.getNumBeats() - 1) {
-	        this._sound.play(this._beats.getBeatTime(overallBeat));
+	        if (overallBeat < 0) {
+	            this._animStateDelegate.nextBeat();
+	            $(".js-beat-number").text("1");
+	            this._sound.play(0);
+	        } else {
+	            this._sound.play(this._beats.getBeatTime(overallBeat));
+	        }
 	    } else {
 	        this._endOfShow();
 	    }
@@ -2110,6 +2130,292 @@
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
+	 * @fileOverview Defines the MovementCommandEven class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+	 
+	 
+	/**
+	 * A MovementCommand that defines an even-step transition between
+	 * two points.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The angle toward which the marcher is facing while
+	 *   executing the movement. The angle is measured in degrees relative to
+	 *   Grapher standard position. (@see MathUtils.js for definition of
+	 *   "Grapher standard position")
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The number of beats per each step.
+	 */
+	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
+	    this._orientation = orientation;
+	    this._beatsPerStep = beatsPerStep;
+	    var numSteps = Math.floor(beats / this._beatsPerStep);
+	    this._deltaXPerStep = (endX - startX) / numSteps;
+	    this._deltaYPerStep = (endY - startY) / numSteps;
+
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandEven, MovementCommand);
+
+	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
+	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
+	};
+
+	/**
+	 * Returns the number of beats in this movement
+	 * @return {int}
+	 */
+	MovementCommandEven.prototype.getBeatsPerStep = function() {
+	    return this._beatsPerStep;
+	}
+
+	module.exports = MovementCommandEven;
+
+/***/ },
+/* 10 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMove class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MathUtils = __webpack_require__(22);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+	 
+	/**
+	 * A MovementCommand which represents a constant movement in a
+	 * particular direction.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} stepSize the size of each step, relative to standard
+	 *   stepsize (standard stepsize is 8 steps per 5 yards).
+	 * @param {float} movementDirection The direction toward which the marcher
+	 *   will move. This is measured in degrees relative to Grapher standard
+	 *   position (@see MathUtils.js for a definition of "Grapher standard
+	 *   position").
+	 * @param {float} faceOrientation the direction toward which the marcher
+	 *   will face while executing the movement. This is measured in degrees,
+	 *   relative to Grapher standard position.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep the number of beats per each step of the movement.
+	 */ 
+	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
+	    movementDirection = MathUtils.toRadians(movementDirection);
+	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
+	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
+	    this._orientation = faceOrientation;
+	    this._beatsPerStep = beatsPerStep;
+	    numSteps = Math.floor(beats / this._beatsPerStep);
+	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
+	};
+
+	ClassUtils.extends(MovementCommandMove, MovementCommand);
+
+	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
+	    numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
+	};
+
+	module.exports = MovementCommandMove;
+
+/***/ },
+/* 11 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandStand class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+	 
+	/**
+	 * A MovementCommand representing a period of standing.
+	 * @param {float} x The x coordinate to stand at.
+	 * @param {float} y The y coordinate to stand at.
+	 * @param {float} orientation The angle at which the marcher will
+	 *   face while standing. This is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for a definition
+	 *   of "grapher standard position).
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandStand = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandStand, MovementCommand);
+
+	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	module.exports = MovementCommandStand;
+
+/***/ },
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandGoto class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+	 
+	/**
+	 * A MovementCommand that represents a "Goto" movement:
+	 * dots executing this movement simply jump to the movement's final
+	 * position and orientation at every beat of the movement.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The direction in which the marcher will face
+	 *   while executing the movement. The direction is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for the definition of
+	 *   "Grapher standard position").
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandGoto, MovementCommand);
+
+	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._endX, this._endY, this._orientation);
+	};
+
+	module.exports = MovementCommandGoto;
+
+/***/ },
+/* 13 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMarkTime class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+
+	 /**
+	  * A MovementCommand that represents a period of mark time.
+	  *
+	  * @param {float} x The x position where the mark time takes place.
+	  * @param {float} y The y position where the mark time takes place.
+	  * @param {float} orientation The direction toward which the marcher
+	  *   faces while marking time. This is measured in degrees,
+	  *   relative to Grapher standard position (@see MathUtils.js
+	  *   for a definition of "Grapher standard position").
+	  * @param {int} beats The duration of the movement, in beats.
+	  */
+	var MovementCommandMarkTime = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandMarkTime, MovementCommand);
+
+	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	module.exports = MovementCommandMarkTime;
+
+/***/ },
+/* 14 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandArc class.
+	 */
+
+	var ClassUtils = __webpack_require__(19);
+	var MathUtils = __webpack_require__(22);
+	var MovementCommand = __webpack_require__(20);
+	var AnimationState = __webpack_require__(21);
+	 
+	/**
+	 * A MovementCommandArc object represents a movement along the
+	 * perimeter of a circular arc.
+	 *
+	 * @param {float} startX The x coordinate of the movement's start position.
+	 * @param {float} startY The y coordinate of the movement's start position.
+	 * @param {float} centerX The x coordinate of the arc center.
+	 * @param {float} centerY The y coordinate of the arc center.
+	 * @param {float angleTorotate The amount to rotate about the center, in
+	 *   degrees. Positive values indicate a rotation in the clockwise
+	 *   direction, negative values indicate a rotation in the
+	 *   counterclockwise direction.
+	 * @param {float} facingOffset The difference between the direction
+	 *   in which a marcher is travelling and the direction in
+	 *   which a marcher is facing. This angle is measured in degrees,
+	 *   where positive angles indicate a clockwise offset, and
+	 *   negative angles indicate a counterclockwise one.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The duration of each step, in beats.
+	 */
+	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
+	    this._beatsPerStep = beatsPerStep;
+	    this._centerX = centerX;
+	    this._centerY = centerY;
+	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
+	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
+	    if (isNaN(this._startAngle)) {
+	        this._startAngle = 0;
+	    }
+	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
+	    this._movementIsCW = this._stepAngleDelta >= 0;
+	    this._orientationOffset = MathUtils.toRadians(facingOffset);
+	    var finalAnimState = this.getAnimationState(beats);
+	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
+	};
+
+	ClassUtils.extends(MovementCommandArc, MovementCommand);
+
+	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
+	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
+	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
+	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
+	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
+	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
+	};
+
+	/**
+	 * Returns the total angle of movement
+	 * @return {int} the rounded angle of movement
+	 */
+	MovementCommandArc.prototype.getAngle = function() {
+	    return Math.abs(Math.floor(MathUtils.toDegrees(this._numBeats * this._stepAngleDelta)));
+	};
+
+	module.exports = MovementCommandArc;
+
+/***/ },
+/* 15 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
 	 * @fileOverview Defines the Version class.
 	 */
 
@@ -2182,7 +2488,7 @@
 	module.exports = Version;
 
 /***/ },
-/* 10 */
+/* 16 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2200,19 +2506,19 @@
 	 *   
 	 */
 
-	var FileLoadSelector = __webpack_require__(19);
-	var InvalidFileTypeError = __webpack_require__(20);
-	var ClassUtils = __webpack_require__(21);
-	var Version = __webpack_require__(9);
-	var Dot = __webpack_require__(22);
-	var Sheet = __webpack_require__(23);
-	var Show = __webpack_require__(24);
-	var MovementCommandStand = __webpack_require__(14);
-	var MovementCommandMarkTime = __webpack_require__(16);
-	var MovementCommandArc = __webpack_require__(17);
-	var MovementCommandMove = __webpack_require__(13);
-	var MovementCommandGoto = __webpack_require__(15);
-	var MovementCommandEven = __webpack_require__(12);
+	var FileLoadSelector = __webpack_require__(23);
+	var InvalidFileTypeError = __webpack_require__(24);
+	var ClassUtils = __webpack_require__(19);
+	var Version = __webpack_require__(15);
+	var Dot = __webpack_require__(25);
+	var Sheet = __webpack_require__(26);
+	var Show = __webpack_require__(27);
+	var MovementCommandStand = __webpack_require__(11);
+	var MovementCommandMarkTime = __webpack_require__(13);
+	var MovementCommandArc = __webpack_require__(14);
+	var MovementCommandMove = __webpack_require__(10);
+	var MovementCommandGoto = __webpack_require__(12);
+	var MovementCommandEven = __webpack_require__(9);
 	 
 	/**
 	 * Every version of the Viewer File needs to be loaded in a different way -
@@ -2501,7 +2807,7 @@
 	module.exports = ViewerFileLoadSelector;
 
 /***/ },
-/* 11 */
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2519,11 +2825,11 @@
 	 *   
 	 */
 
-	var Version = __webpack_require__(9);
-	var FileLoadSelector = __webpack_require__(19);
-	var ClassUtils = __webpack_require__(21);
-	var TimedBeats = __webpack_require__(25);
-	var InvalidFileTypeError = __webpack_require__(20);
+	var Version = __webpack_require__(15);
+	var FileLoadSelector = __webpack_require__(23);
+	var ClassUtils = __webpack_require__(19);
+	var TimedBeats = __webpack_require__(28);
+	var InvalidFileTypeError = __webpack_require__(24);
 	 
 	/**
 	 * Every version of the Beats File needs to be loaded in a different way -
@@ -2634,292 +2940,6 @@
 	module.exports = BeatsFileLoadSelector;
 
 /***/ },
-/* 12 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandEven class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-	 
-	 
-	/**
-	 * A MovementCommand that defines an even-step transition between
-	 * two points.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The angle toward which the marcher is facing while
-	 *   executing the movement. The angle is measured in degrees relative to
-	 *   Grapher standard position. (@see MathUtils.js for definition of
-	 *   "Grapher standard position")
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The number of beats per each step.
-	 */
-	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
-	    this._orientation = orientation;
-	    this._beatsPerStep = beatsPerStep;
-	    var numSteps = Math.floor(beats / this._beatsPerStep);
-	    this._deltaXPerStep = (endX - startX) / numSteps;
-	    this._deltaYPerStep = (endY - startY) / numSteps;
-
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandEven, MovementCommand);
-
-	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
-	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
-	};
-
-	/**
-	 * Returns the number of beats in this movement
-	 * @return {int}
-	 */
-	MovementCommandEven.prototype.getBeatsPerStep = function() {
-	    return this._beatsPerStep;
-	}
-
-	module.exports = MovementCommandEven;
-
-/***/ },
-/* 13 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMove class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MathUtils = __webpack_require__(28);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-	 
-	/**
-	 * A MovementCommand which represents a constant movement in a
-	 * particular direction.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} stepSize the size of each step, relative to standard
-	 *   stepsize (standard stepsize is 8 steps per 5 yards).
-	 * @param {float} movementDirection The direction toward which the marcher
-	 *   will move. This is measured in degrees relative to Grapher standard
-	 *   position (@see MathUtils.js for a definition of "Grapher standard
-	 *   position").
-	 * @param {float} faceOrientation the direction toward which the marcher
-	 *   will face while executing the movement. This is measured in degrees,
-	 *   relative to Grapher standard position.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep the number of beats per each step of the movement.
-	 */ 
-	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
-	    movementDirection = MathUtils.toRadians(movementDirection);
-	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
-	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
-	    this._orientation = faceOrientation;
-	    this._beatsPerStep = beatsPerStep;
-	    numSteps = Math.floor(beats / this._beatsPerStep);
-	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMove, MovementCommand);
-
-	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
-	    numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
-	};
-
-	module.exports = MovementCommandMove;
-
-/***/ },
-/* 14 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandStand class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-	 
-	/**
-	 * A MovementCommand representing a period of standing.
-	 * @param {float} x The x coordinate to stand at.
-	 * @param {float} y The y coordinate to stand at.
-	 * @param {float} orientation The angle at which the marcher will
-	 *   face while standing. This is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for a definition
-	 *   of "grapher standard position).
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandStand = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandStand, MovementCommand);
-
-	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	module.exports = MovementCommandStand;
-
-/***/ },
-/* 15 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandGoto class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-	 
-	/**
-	 * A MovementCommand that represents a "Goto" movement:
-	 * dots executing this movement simply jump to the movement's final
-	 * position and orientation at every beat of the movement.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The direction in which the marcher will face
-	 *   while executing the movement. The direction is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for the definition of
-	 *   "Grapher standard position").
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandGoto, MovementCommand);
-
-	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._endX, this._endY, this._orientation);
-	};
-
-	module.exports = MovementCommandGoto;
-
-/***/ },
-/* 16 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMarkTime class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-
-	 /**
-	  * A MovementCommand that represents a period of mark time.
-	  *
-	  * @param {float} x The x position where the mark time takes place.
-	  * @param {float} y The y position where the mark time takes place.
-	  * @param {float} orientation The direction toward which the marcher
-	  *   faces while marking time. This is measured in degrees,
-	  *   relative to Grapher standard position (@see MathUtils.js
-	  *   for a definition of "Grapher standard position").
-	  * @param {int} beats The duration of the movement, in beats.
-	  */
-	var MovementCommandMarkTime = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMarkTime, MovementCommand);
-
-	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	module.exports = MovementCommandMarkTime;
-
-/***/ },
-/* 17 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandArc class.
-	 */
-
-	var ClassUtils = __webpack_require__(21);
-	var MathUtils = __webpack_require__(28);
-	var MovementCommand = __webpack_require__(26);
-	var AnimationState = __webpack_require__(27);
-	 
-	/**
-	 * A MovementCommandArc object represents a movement along the
-	 * perimeter of a circular arc.
-	 *
-	 * @param {float} startX The x coordinate of the movement's start position.
-	 * @param {float} startY The y coordinate of the movement's start position.
-	 * @param {float} centerX The x coordinate of the arc center.
-	 * @param {float} centerY The y coordinate of the arc center.
-	 * @param {float angleTorotate The amount to rotate about the center, in
-	 *   degrees. Positive values indicate a rotation in the clockwise
-	 *   direction, negative values indicate a rotation in the
-	 *   counterclockwise direction.
-	 * @param {float} facingOffset The difference between the direction
-	 *   in which a marcher is travelling and the direction in
-	 *   which a marcher is facing. This angle is measured in degrees,
-	 *   where positive angles indicate a clockwise offset, and
-	 *   negative angles indicate a counterclockwise one.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The duration of each step, in beats.
-	 */
-	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
-	    this._beatsPerStep = beatsPerStep;
-	    this._centerX = centerX;
-	    this._centerY = centerY;
-	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
-	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
-	    if (isNaN(this._startAngle)) {
-	        this._startAngle = 0;
-	    }
-	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
-	    this._movementIsCW = this._stepAngleDelta >= 0;
-	    this._orientationOffset = MathUtils.toRadians(facingOffset);
-	    var finalAnimState = this.getAnimationState(beats);
-	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandArc, MovementCommand);
-
-	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
-	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
-	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
-	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
-	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
-	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
-	};
-
-	/**
-	 * Returns the total angle of movement
-	 * @return {int} the rounded angle of movement
-	 */
-	MovementCommandArc.prototype.getAngle = function() {
-	    return Math.abs(Math.floor(MathUtils.toDegrees(this._numBeats * this._stepAngleDelta)));
-	};
-
-	module.exports = MovementCommandArc;
-
-/***/ },
 /* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
@@ -2928,7 +2948,7 @@
 	 *   type that uses SoundManager2 to play audio.
 	 */
 
-	var ClassUtils = __webpack_require__(21);
+	var ClassUtils = __webpack_require__(19);
 	var SMSound = __webpack_require__(29);
 	var MusicPlayer = __webpack_require__(30);
 	 
@@ -2999,142 +3019,6 @@
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
-	 * @fileOverview This file defines the FileLoadSelector class,
-	 *   which is used to track changes to file formats and to make
-	 *   sure that different versions of a file type get loaded properly.
-	 *   Here's how the loading process works:
-	 *   A file format can change over time, so not all
-	 *   files will be loaded in the same way. Thus, before
-	 *   loading a particular file, you first need to fetch
-	 *   a loader object that can load your particular file. To do this,
-	 *   you need to call the getAppropriateLoader(version) method
-	 *   on a FileLoadSelector object.
-	 *   Once you have the appropriate loader for your file version, you
-	 *   can call its loadFile(...) method to load the file.
-	 *
-	 *   WHAT TO DO WHEN A FILE FORMAT CHANGES:
-	 *   When a file format changes, you need to add
-	 *   the ability to load the new file format while preserving
-	 *   the ability to load older file versions. To do this, you
-	 *   first need to define a child class of FileLoader
-	 *   that can load the new file version. Often,
-	 *   file format changes are small, and you only need to change
-	 *   the way in which a particular piece of the file is loaded.
-	 *   In these cases, it can be helpful to derive your new
-	 *   FileLoader from the loader for the previous version
-	 *   (e.g. FileLoad_1_0_1 might inherit from FileLoad_1_0_0
-	 *   in order to get access to all of the methods used to load
-	 *   file version 1.0.0; it may then change only a few of the original
-	 *   methods to accomodate for the file changes).
-	 *   After you make a new FileLoader, you need to register it
-	 *   with the FileLoadSelector. To do that, call
-	 *   loadSelector.registerLoader(fileVersionHere, new YourFileLoaderHere());
-	 *   In summary:
-	 *     - Define a new FileLoader to load the new file format
-	 *     - Register the new FileLoader with the FileLoadSelector by
-	 *         calling loadSelector.registerLoader(...)
-	 */
-
-	var ArrayUtils = __webpack_require__(31);
-	var Version = __webpack_require__(9);
-	 
-	/**
-	 * Every version of a file needs to be loaded in a different way -
-	 * this class is responsible for finding the appropriate FileLoader
-	 * object for loading a particular file version.
-	 */
-	var FileLoadSelector = function() {
-	    this._loaders = [];
-	};
-
-	/**
-	 * Associates a particular file version with a FileLoader
-	 * that can load files of that version.
-	 *
-	 * @param {Version} version The file version.
-	 * @param {FileLoader} loader A FileLoader that can load
-	 *   files of the given version.
-	 */
-	FileLoadSelector.prototype.registerLoader = function(version, loader) {
-	    var insertIndex = ArrayUtils.binarySearchForClosestLarger(this._loaders, version, FileLoadSelector._versionLocator);
-	    var loaderVersionPair = {
-	        version: version,
-	        loader: loader
-	    };
-	    this._loaders.splice(insertIndex, 0, loaderVersionPair);
-	};
-
-	/**
-	 * Returns the FileLoader that can load a file of the
-	 * given version.
-	 *
-	 * @param {Version} version The file version to load.
-	 * @return {FileLoader} A FileLoader that can load
-	 *   files with the provided version.
-	 */
-	FileLoadSelector.prototype.getAppropriateLoader = function(version) {
-	    var targetIndex = ArrayUtils.binarySearchForClosestSmaller(this._loaders, version, FileLoadSelector._versionLocator);
-	    return this._loaders[targetIndex].loader;
-	};
-
-	/**
-	 * Used in a binary search to find the position where a particular version
-	 * fits into an array of loader-version pairs sorted from earliest version
-	 * to latest version.
-	 *
-	 * @param {Version} versionToLocate The version to find in the array.
-	 * @param {object} relativeTo A loader-version pair to compare against the
-	 *   versionToLocate.
-	 * @return {int} A negative value if the versionToLocate comes before
-	 *   relativeTo in the array; positive value if the versionToLocate comes
-	 *   after relativeTo in the array; zero if versionToLocate and relativeTo
-	 *   have identical versions.
-	 */
-	FileLoadSelector._versionLocator = function(versionToLocate, relativeTo) {
-	    return versionToLocate.compareTo(relativeTo.version);
-	};
-	 
-	/**
-	 * This class is responsible for loading files of a particular version.
-	 */
-	FileLoadSelector.FileLoader = function() {
-	};
-
-	/**
-	 * Loads an entire file, and returns the result.
-	 *
-	 * @param {object} fileObject The file content.
-	 * @return {*} Depends on the version of the file.
-	 */
-	FileLoadSelector.FileLoader.prototype.loadFile = function(fileObject) {
-	    console.log("FileLoader.loadFile(...) called");
-	};
-
-
-	module.exports = FileLoadSelector;
-
-/***/ },
-/* 20 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * An Exception thrown by the FileLoadSelectors if the loaded file is of the wrong
-	 * file type.
-	 *
-	 * @param {String} message The message to accompany the error.
-	 */
-	var InvalidFileTypeError = function(message) {
-	    this.message = message;
-	    this.name = "InvalidFileTypeError";
-	};
-
-	module.exports = InvalidFileTypeError;
-
-/***/ },
-/* 21 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
 	 * @fileOverview Defines various utility functions that are related to
 	 *   defining classes and their properties.
 	 */
@@ -3160,441 +3044,14 @@
 	module.exports = ClassUtils;
 
 /***/ },
-/* 22 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the Dot class.
-	 */
-
-	/**
-	 * Dot objects represent marchers. They execute a sequence
-	 * of MovementCommands, which define their position and orientation
-	 * on any given beat. Every Stuntsheet has its own set of Dot objects,
-	 * so a marcher will be represented by more than one of them throughout
-	 * a show. Specifically, every marcher is associated with AT MOST one
-	 * Dot object per Stuntsheet (some Stuntsheets may not include certain
-	 * marchers).
-	 *
-	 * @param {string} label The dot's label. This is also the label of
-	 *   the marcher associated with this dot.
-	 * @param {Array<MovementCommand>} movementCommands All of the MovementCommand
-	 *   objects that this Dot will execute. The commands must be sorted in the
-	 *   order in which they will be executed.
-	 */
-	var Dot = function(label, movementCommands) {
-	    this._label = label;
-	    this._movements = movementCommands;
-	};
-
-	/**
-	 * Returns the label for this dot.
-	 *
-	 * @return {string} The dot's label.
-	 */
-	Dot.prototype.getLabel = function() {
-	    return this._label;
-	};
-
-	/**
-	 * Returns this dot's movement commands.
-	 *
-	 * @return {string} The dot's movements.
-	 */
-	Dot.prototype.getMovementCommands = function() {
-	    return this._movements;
-	}
-
-	/**
-	 * Returns an AnimationState object that describes the Dot's
-	 * position, orientation, etc. at a specific moment in the show.
-	 *
-	 * @param {int} beatNum The Dot's AnimationState will be
-	 *   relevant to the beat indicated by this value. The beat
-	 *   is relative to the start of the stuntsheet.
-	 * @return {AnimationState} An AnimationState that
-	 *   describes the Dot at a moment of the show,. If the Dot
-	 *   has no movement at the specified beat, returns undefined.
-	 */
-	Dot.prototype.getAnimationState = function(beatNum) {
-	    for (var commandIndex = 0; commandIndex < this._movements.length; commandIndex++) {
-	        if (beatNum < this._movements[commandIndex].getBeatDuration()) {
-	            return this._movements[commandIndex].getAnimationState(beatNum);
-	        }
-	        beatNum -= this._movements[commandIndex].getBeatDuration();
-	    }
-	};
-
-	module.exports = Dot;
-
-/***/ },
-/* 23 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the Sheet class.
-	 */
-
-	/**
-	 * Sheets represent stuntsheets in a show. Each has a collection of
-	 * all of the Dots involved in its formations, and those Dots,
-	 * in turn, know their positions and orientations for all beats during
-	 * the Sheet's duration.
-	 *
-	 * @param {string} label The label/name for the sheet.
-	 * @param {string} fieldType A string that indicates the type of field that this sheet
-	 *   is performed on.
-	 * @param {Array<string>} dotTypes An array of all dot types used in this sheet.
-	 * @param {object} dotTypeAssignments An object that maps each dot label to the dot type
-	 *   associated with that dot.
-	 * @param {object} continuityTexts An object that maps each dot type to an array
-	 *   containing all of the continuity instructions associated with that dot type.
-	 * @param {int} duration The duration of the sheet, in beats.
-	 * @param {Array<Dot>} dots An array of all dots involved in this sheet's
-	 *   movements. Note that all of these dots already have their
-	 *   MovementCommands before the Sheet is constructed.
-	 * @param {Array<string>} dotLabels an array, in sync with dots, which specifies the
-	 *   dot labels of the dots
-	 */
-	var Sheet = function(sheetLabel, fieldType, dotTypes, dotTypeAssignments, continuityTexts, duration, dots, dotLabels) {
-	    this._sheetLabel = sheetLabel;
-	    this._fieldType = fieldType;
-	    this._dotTypes = dotTypes;
-	    this._dotTypeAssignments = dotTypeAssignments;
-	    this._continuityTexts = continuityTexts;
-	    this._duration = duration;
-	    this._dots = dots;
-	    this._dotLabels = dotLabels;
-	};
-
-	/**
-	 * Returns the sheet's label.
-	 *
-	 * @return {string} The sheet's label.
-	 */
-	Sheet.prototype.getSheetLabel = function() {
-	    return this._sheetLabel;
-	};
-
-	/**
-	 * Returns the type of field that this sheet is performed on.
-	 *
-	 * @return {string} A string that indicates what kind of field
-	 *   the sheet is performed on.
-	 */
-	Sheet.prototype.getFieldType = function() {
-	    return this._fieldType;
-	};
-
-	/**
-	 * Returns an array of all dot types involved with this
-	 * sheet.
-	 *
-	 * @return {Array<string>} An array of all dot types involved in
-	 *   this sheet. Dot types are given as strings.
-	 */
-	Sheet.prototype.getAllDotTypes = function() {
-	    return this._dotTypes;
-	};
-
-	/**
-	 * Returns the dot type associated with a particular
-	 * dot.
-	 *
-	 * @param {string} dotLabel The label of the dot whose
-	 *   dot type will be returned.
-	 * @return {string} The dot label of the specified dot.
-	 */
-	Sheet.prototype.getDotType = function(dotLabel) {
-	    return this._dotTypeAssignments[dotLabel];
-	};
-
-	/**
-	 * Returns an array containing the continuities associated
-	 * with a particular dot type. Each continuity is a human-readable
-	 * instruction as would appear on a printed version of a stuntsheet.
-	 *
-	 * @param {string} dotType The dot type to retrieve continuities for.
-	 * @return {Array<string>} An array containing all continuities associated
-	 *   with the specified dot type. Each continuity is a human-readable
-	 *   text instruction.
-	 */
-	Sheet.prototype.getContinuityTexts = function(dotType) {
-	    return this._continuityTexts[dotType];
-	};
-
-	/**
-	 * Returns an array of all dots involved in this sheet's movements.
-	 *
-	 * @return {Array<Dot>} An array of all dots involved in this sheet's
-	 *   movements.
-	 */
-	Sheet.prototype.getDots = function() {
-	    return this._dots;
-	};
-
-	/**
-	 * Get a dot in this sheet by its dot label.
-	 * @param  {string} dotLabel the dots label, e.g. "A1" or "15"
-	 * @return {Dot|null} the dot, or null if a dot with the given label does not
-	 *   exist in the sheet
-	 */
-	Sheet.prototype.getDotByLabel = function (dotLabel) {
-	    var index = this._dotLabels.indexOf(dotLabel);
-	    if (index === -1) {
-	        return null;
-	    }
-	    return this._dots[index];
-	};
-
-	/**
-	 * Returns the duration of this sheet, in beats.
-	 *
-	 * @return {int} The duration of this sheet, in beats.
-	 */
-	Sheet.prototype.getDuration = function() {
-	    return this._duration;
-	};
-
-	module.exports = Sheet;
-
-/***/ },
-/* 24 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the Show class.
-	 */
-	 
-	/**
-	 * Represents an entire fieldshow.
-	 *
-	 * @param {string} title The title of the show.
-	 * @param {string} year The year that the show was performed.
-	 * @param {string} description The show description.
-	 * @param {Array<string>} dotLabels An array containing the
-	 *   labels of each dot in the show.
-	 * @param {Array<Sheet>=} sheets The sheets in the show. This
-	 *   parameter is optional - sheets can be appended after
-	 *   the show is constructed by using the appendSheet(...)
-	 *   method.
-	 */
-	var Show = function(title, year, description, dotLabels, sheets) {
-	    this._title = title;
-	    this._year = year;
-	    this._description = description;
-	    this._dotLabels = dotLabels;
-	    if (sheets === undefined) {
-	        this._sheets = [];
-	    } else {
-	        this._sheets = sheets;
-	    }
-	};
-
-	/**
-	 * Returns the title of the show.
-	 *
-	 * @return {string} The title of the show.
-	 */
-	Show.prototype.getTitle = function() {
-	    return this._title;
-	};
-
-	/**
-	 * Returns the year during which the show was performed.
-	 *
-	 * @return {string} The year during which the show was
-	 *   performed.
-	 */
-	Show.prototype.getYear = function() {
-	    return this._year;
-	};
-
-	/**
-	 * Returns the show description.
-	 *
-	 * @return {string} The show description.
-	 */
-	Show.prototype.getDescription = function() {
-	    return this._description;
-	};
-
-	/**
-	 * Returns an array containing the labels for
-	 * all dots in the show.
-	 *
-	 * @return {Array<string>} An array of all dot labels.
-	 */
-	Show.prototype.getDotLabels = function() {
-	    return this._dotLabels;
-	};
-
-	/**
-	 * Returns an array of all sheets in the show.
-	 *
-	 * @return {Array<Sheet>} An array of all sheets in the show.
-	 */
-	Show.prototype.getSheets = function() {
-	    return this._sheets;
-	};
-
-	/**
-	 * Returns a particular sheet from the show.
-	 *
-	 * @param {int} index The index of the sheet to retrieve.
-	 *   This can be any integer in the range [0, num_sheets).
-	 *   Notice that the upper bound of the range is exclusive.
-	 *   To find the Nth sheet in a show, you need to request
-	 *   the sheet with an index of N-1 (e.g. to retrive the 5th
-	 *   sheet, you would call getSheet(4)).
-	 * @return {Sheet} The stuntsheet with the specified index.
-	 */
-	Show.prototype.getSheet = function(index) {
-	    return this._sheets[index];
-	};
-
-	/**
-	 * Returns the number of sheets in the show.
-	 *
-	 * @return {int} The number of sheets in the show.
-	 */
-	Show.prototype.getNumSheets = function() {
-	    return this._sheets.length;
-	};
-
-	/**
-	 * Adds a sheet to the back of the show.
-	 *
-	 * @param {Sheet} sheet The sheet to add to the
-	 *   show.
-	 */
-	Show.prototype.appendSheet = function(sheet) {
-	    this._sheets.push(sheet);
-	};
-
-	module.exports = Show;
-
-/***/ },
-/* 25 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the TimedBeats class.
-	 *   TimedBeats objects are loaded from beats files,
-	 *   and are used to help the MusicAnimator find
-	 *   beats in the music.
-	 */
-	 
-	 var ArrayUtils = __webpack_require__(31);
-
-	/**
-	 * TimedBeats objects record a sequence of
-	 * timed beats, and can be used to get
-	 * information about them.
-	 *
-	 * @param {Array<int>=} An array containing
-	 *   the times at which beats occur, in
-	 *   milliseconds. TimedBeats objects are
-	 *   generally used to locate the beats in
-	 *   a music file, so the times are usually
-	 *   relative to the start of an audio file.
-	 *   The array MUST be sorted from least
-	 *   to greatest.
-	 */
-	var TimedBeats = function(beats) {
-	    if (beats !== undefined) {
-	        this._beats = beats;
-	    } else {
-	        this._beats = [];
-	    }
-	};
-
-	/**
-	 * Adds a beat to the TimedBeats object at
-	 * the specified time.
-	 *
-	 * @param {int} beatTime The time of the beat,
-	 *   measured in milliseconds.
-	 */
-	TimedBeats.prototype.addBeat = function(beatTime) {
-	    this.addBeats([beatTime]);
-	};
-
-	/**
-	 * Adds a sequence of beats to the TimedBeats object.
-	 *
-	 * @param {Array<int>} beats An array of times at
-	 *   which beats occur, in milliseconds. This array
-	 *   MUST be sorted from least to greatest.
-	 */
-	TimedBeats.prototype.addBeats = function(beats) {
-	    this._beats = ArrayUtils.mergeSortedArrays(this._beats, beats, this._timeComparator);
-	};
-
-	/**
-	 * Returns the beat number which is active at a particular
-	 * time. An individual beat spans a range of time equal
-	 * to [beatTime, nextBeatTime) (note that the upper bound
-	 * is exclusive). That is, if you ask for a time between
-	 * two beats, this will always return the lower of the two
-	 * beats. This will return undefined if you ask for the
-	 * beat number before the zeroth beat in the show.
-	 *
-	 * @param {int} time The time to check, in milliseconds.
-	 * @return {int} The beat number that is active at the
-	 *   given time, or undefined if the time requested
-	 *   is before the zeroth beat of the show.
-	 */
-	TimedBeats.prototype.getBeatNumAtTime = function(time) {
-	    return ArrayUtils.binarySearchForClosestSmaller(this._beats, time, this._timeComparator);
-	};
-
-	/**
-	 * Returns the time at which the specified beat starts.
-	 *
-	 * @param {int} beatNum The beat to find the start
-	 *   time for.
-	 * @return {int} The time at which the beat starts, in
-	 *   milliseconds.
-	 */
-	TimedBeats.prototype.getBeatTime = function(beatNum) {
-	    return this._beats[beatNum];
-	};
-
-	/**
-	 * Returns the number of recorded beats in this object.
-	 *
-	 * @return {int} The number of beats.
-	 */
-	TimedBeats.prototype.getNumBeats = function() {
-	    return this._beats.length;
-	};
-
-	/**
-	 * A comparator used to order the beats in chronological order.
-	 *
-	 * @param {int} firstTime The time of some beat, in milliseconds.
-	 * @param {int} secondTime The time of some other beat, in milliseconds.
-	 * @return {int} A positive value if the first time should come after
-	 *   the second in chronological order; a negative value if the first
-	 *   should come before the second in chronological order; zero if the
-	 *   times are the same.
-	 */
-	TimedBeats.prototype._timeComparator = function(firstTime, secondTime) {
-	    return firstTime - secondTime;
-	};
-
-	module.exports = TimedBeats;
-
-/***/ },
-/* 26 */
+/* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
 	 * @fileOverview Defines the MovementCommand class.
 	 */
 
-	var Coordinate = __webpack_require__(33);
+	var Coordinate = __webpack_require__(31);
 
 	/**
 	 * MovementCommand class
@@ -3709,7 +3166,7 @@
 	module.exports = MovementCommand;
 
 /***/ },
-/* 27 */
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3734,7 +3191,7 @@
 	module.exports = AnimationState;
 
 /***/ },
-/* 28 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3972,6 +3429,569 @@
 
 
 /***/ },
+/* 23 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview This file defines the FileLoadSelector class,
+	 *   which is used to track changes to file formats and to make
+	 *   sure that different versions of a file type get loaded properly.
+	 *   Here's how the loading process works:
+	 *   A file format can change over time, so not all
+	 *   files will be loaded in the same way. Thus, before
+	 *   loading a particular file, you first need to fetch
+	 *   a loader object that can load your particular file. To do this,
+	 *   you need to call the getAppropriateLoader(version) method
+	 *   on a FileLoadSelector object.
+	 *   Once you have the appropriate loader for your file version, you
+	 *   can call its loadFile(...) method to load the file.
+	 *
+	 *   WHAT TO DO WHEN A FILE FORMAT CHANGES:
+	 *   When a file format changes, you need to add
+	 *   the ability to load the new file format while preserving
+	 *   the ability to load older file versions. To do this, you
+	 *   first need to define a child class of FileLoader
+	 *   that can load the new file version. Often,
+	 *   file format changes are small, and you only need to change
+	 *   the way in which a particular piece of the file is loaded.
+	 *   In these cases, it can be helpful to derive your new
+	 *   FileLoader from the loader for the previous version
+	 *   (e.g. FileLoad_1_0_1 might inherit from FileLoad_1_0_0
+	 *   in order to get access to all of the methods used to load
+	 *   file version 1.0.0; it may then change only a few of the original
+	 *   methods to accomodate for the file changes).
+	 *   After you make a new FileLoader, you need to register it
+	 *   with the FileLoadSelector. To do that, call
+	 *   loadSelector.registerLoader(fileVersionHere, new YourFileLoaderHere());
+	 *   In summary:
+	 *     - Define a new FileLoader to load the new file format
+	 *     - Register the new FileLoader with the FileLoadSelector by
+	 *         calling loadSelector.registerLoader(...)
+	 */
+
+	var ArrayUtils = __webpack_require__(32);
+	var Version = __webpack_require__(15);
+	 
+	/**
+	 * Every version of a file needs to be loaded in a different way -
+	 * this class is responsible for finding the appropriate FileLoader
+	 * object for loading a particular file version.
+	 */
+	var FileLoadSelector = function() {
+	    this._loaders = [];
+	};
+
+	/**
+	 * Associates a particular file version with a FileLoader
+	 * that can load files of that version.
+	 *
+	 * @param {Version} version The file version.
+	 * @param {FileLoader} loader A FileLoader that can load
+	 *   files of the given version.
+	 */
+	FileLoadSelector.prototype.registerLoader = function(version, loader) {
+	    var insertIndex = ArrayUtils.binarySearchForClosestLarger(this._loaders, version, FileLoadSelector._versionLocator);
+	    var loaderVersionPair = {
+	        version: version,
+	        loader: loader
+	    };
+	    this._loaders.splice(insertIndex, 0, loaderVersionPair);
+	};
+
+	/**
+	 * Returns the FileLoader that can load a file of the
+	 * given version.
+	 *
+	 * @param {Version} version The file version to load.
+	 * @return {FileLoader} A FileLoader that can load
+	 *   files with the provided version.
+	 */
+	FileLoadSelector.prototype.getAppropriateLoader = function(version) {
+	    var targetIndex = ArrayUtils.binarySearchForClosestSmaller(this._loaders, version, FileLoadSelector._versionLocator);
+	    return this._loaders[targetIndex].loader;
+	};
+
+	/**
+	 * Used in a binary search to find the position where a particular version
+	 * fits into an array of loader-version pairs sorted from earliest version
+	 * to latest version.
+	 *
+	 * @param {Version} versionToLocate The version to find in the array.
+	 * @param {object} relativeTo A loader-version pair to compare against the
+	 *   versionToLocate.
+	 * @return {int} A negative value if the versionToLocate comes before
+	 *   relativeTo in the array; positive value if the versionToLocate comes
+	 *   after relativeTo in the array; zero if versionToLocate and relativeTo
+	 *   have identical versions.
+	 */
+	FileLoadSelector._versionLocator = function(versionToLocate, relativeTo) {
+	    return versionToLocate.compareTo(relativeTo.version);
+	};
+	 
+	/**
+	 * This class is responsible for loading files of a particular version.
+	 */
+	FileLoadSelector.FileLoader = function() {
+	};
+
+	/**
+	 * Loads an entire file, and returns the result.
+	 *
+	 * @param {object} fileObject The file content.
+	 * @return {*} Depends on the version of the file.
+	 */
+	FileLoadSelector.FileLoader.prototype.loadFile = function(fileObject) {
+	    console.log("FileLoader.loadFile(...) called");
+	};
+
+
+	module.exports = FileLoadSelector;
+
+/***/ },
+/* 24 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * An Exception thrown by the FileLoadSelectors if the loaded file is of the wrong
+	 * file type.
+	 *
+	 * @param {String} message The message to accompany the error.
+	 */
+	var InvalidFileTypeError = function(message) {
+	    this.message = message;
+	    this.name = "InvalidFileTypeError";
+	};
+
+	module.exports = InvalidFileTypeError;
+
+/***/ },
+/* 25 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the Dot class.
+	 */
+
+	/**
+	 * Dot objects represent marchers. They execute a sequence
+	 * of MovementCommands, which define their position and orientation
+	 * on any given beat. Every Stuntsheet has its own set of Dot objects,
+	 * so a marcher will be represented by more than one of them throughout
+	 * a show. Specifically, every marcher is associated with AT MOST one
+	 * Dot object per Stuntsheet (some Stuntsheets may not include certain
+	 * marchers).
+	 *
+	 * @param {string} label The dot's label. This is also the label of
+	 *   the marcher associated with this dot.
+	 * @param {Array<MovementCommand>} movementCommands All of the MovementCommand
+	 *   objects that this Dot will execute. The commands must be sorted in the
+	 *   order in which they will be executed.
+	 */
+	var Dot = function(label, movementCommands) {
+	    this._label = label;
+	    this._movements = movementCommands;
+	};
+
+	/**
+	 * Returns the label for this dot.
+	 *
+	 * @return {string} The dot's label.
+	 */
+	Dot.prototype.getLabel = function() {
+	    return this._label;
+	};
+
+	/**
+	 * Returns this dot's movement commands.
+	 *
+	 * @return {string} The dot's movements.
+	 */
+	Dot.prototype.getMovementCommands = function() {
+	    return this._movements;
+	}
+
+	/**
+	 * Returns an AnimationState object that describes the Dot's
+	 * position, orientation, etc. at a specific moment in the show.
+	 *
+	 * @param {int} beatNum The Dot's AnimationState will be
+	 *   relevant to the beat indicated by this value. The beat
+	 *   is relative to the start of the stuntsheet.
+	 * @return {AnimationState} An AnimationState that
+	 *   describes the Dot at a moment of the show,. If the Dot
+	 *   has no movement at the specified beat, returns undefined.
+	 */
+	Dot.prototype.getAnimationState = function(beatNum) {
+	    for (var commandIndex = 0; commandIndex < this._movements.length; commandIndex++) {
+	        if (beatNum < this._movements[commandIndex].getBeatDuration()) {
+	            return this._movements[commandIndex].getAnimationState(beatNum);
+	        }
+	        beatNum -= this._movements[commandIndex].getBeatDuration();
+	    }
+	};
+
+	module.exports = Dot;
+
+/***/ },
+/* 26 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the Sheet class.
+	 */
+
+	/**
+	 * Sheets represent stuntsheets in a show. Each has a collection of
+	 * all of the Dots involved in its formations, and those Dots,
+	 * in turn, know their positions and orientations for all beats during
+	 * the Sheet's duration.
+	 *
+	 * @param {string} label The label/name for the sheet.
+	 * @param {string} fieldType A string that indicates the type of field that this sheet
+	 *   is performed on.
+	 * @param {Array<string>} dotTypes An array of all dot types used in this sheet.
+	 * @param {object} dotTypeAssignments An object that maps each dot label to the dot type
+	 *   associated with that dot.
+	 * @param {object} continuityTexts An object that maps each dot type to an array
+	 *   containing all of the continuity instructions associated with that dot type.
+	 * @param {int} duration The duration of the sheet, in beats.
+	 * @param {Array<Dot>} dots An array of all dots involved in this sheet's
+	 *   movements. Note that all of these dots already have their
+	 *   MovementCommands before the Sheet is constructed.
+	 * @param {Array<string>} dotLabels an array, in sync with dots, which specifies the
+	 *   dot labels of the dots
+	 */
+	var Sheet = function(sheetLabel, fieldType, dotTypes, dotTypeAssignments, continuityTexts, duration, dots, dotLabels) {
+	    this._sheetLabel = sheetLabel;
+	    this._fieldType = fieldType;
+	    this._dotTypes = dotTypes;
+	    this._dotTypeAssignments = dotTypeAssignments;
+	    this._continuityTexts = continuityTexts;
+	    this._duration = duration;
+	    this._dots = dots;
+	    this._dotLabels = dotLabels;
+	};
+
+	/**
+	 * Returns the sheet's label.
+	 *
+	 * @return {string} The sheet's label.
+	 */
+	Sheet.prototype.getSheetLabel = function() {
+	    return this._sheetLabel;
+	};
+
+	/**
+	 * Returns the type of field that this sheet is performed on.
+	 *
+	 * @return {string} A string that indicates what kind of field
+	 *   the sheet is performed on.
+	 */
+	Sheet.prototype.getFieldType = function() {
+	    return this._fieldType;
+	};
+
+	/**
+	 * Returns an array of all dot types involved with this
+	 * sheet.
+	 *
+	 * @return {Array<string>} An array of all dot types involved in
+	 *   this sheet. Dot types are given as strings.
+	 */
+	Sheet.prototype.getAllDotTypes = function() {
+	    return this._dotTypes;
+	};
+
+	/**
+	 * Returns the dot type associated with a particular
+	 * dot.
+	 *
+	 * @param {string} dotLabel The label of the dot whose
+	 *   dot type will be returned.
+	 * @return {string} The dot label of the specified dot.
+	 */
+	Sheet.prototype.getDotType = function(dotLabel) {
+	    return this._dotTypeAssignments[dotLabel];
+	};
+
+	/**
+	 * Returns an array containing the continuities associated
+	 * with a particular dot type. Each continuity is a human-readable
+	 * instruction as would appear on a printed version of a stuntsheet.
+	 *
+	 * @param {string} dotType The dot type to retrieve continuities for.
+	 * @return {Array<string>} An array containing all continuities associated
+	 *   with the specified dot type. Each continuity is a human-readable
+	 *   text instruction.
+	 */
+	Sheet.prototype.getContinuityTexts = function(dotType) {
+	    return this._continuityTexts[dotType];
+	};
+
+	/**
+	 * Returns an array of all dots involved in this sheet's movements.
+	 *
+	 * @return {Array<Dot>} An array of all dots involved in this sheet's
+	 *   movements.
+	 */
+	Sheet.prototype.getDots = function() {
+	    return this._dots;
+	};
+
+	/**
+	 * Get a dot in this sheet by its dot label.
+	 * @param  {string} dotLabel the dots label, e.g. "A1" or "15"
+	 * @return {Dot|null} the dot, or null if a dot with the given label does not
+	 *   exist in the sheet
+	 */
+	Sheet.prototype.getDotByLabel = function (dotLabel) {
+	    var index = this._dotLabels.indexOf(dotLabel);
+	    if (index === -1) {
+	        return null;
+	    }
+	    return this._dots[index];
+	};
+
+	/**
+	 * Returns the duration of this sheet, in beats.
+	 *
+	 * @return {int} The duration of this sheet, in beats.
+	 */
+	Sheet.prototype.getDuration = function() {
+	    return this._duration;
+	};
+
+	module.exports = Sheet;
+
+/***/ },
+/* 27 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the Show class.
+	 */
+	 
+	/**
+	 * Represents an entire fieldshow.
+	 *
+	 * @param {string} title The title of the show.
+	 * @param {string} year The year that the show was performed.
+	 * @param {string} description The show description.
+	 * @param {Array<string>} dotLabels An array containing the
+	 *   labels of each dot in the show.
+	 * @param {Array<Sheet>=} sheets The sheets in the show. This
+	 *   parameter is optional - sheets can be appended after
+	 *   the show is constructed by using the appendSheet(...)
+	 *   method.
+	 */
+	var Show = function(title, year, description, dotLabels, sheets) {
+	    this._title = title;
+	    this._year = year;
+	    this._description = description;
+	    this._dotLabels = dotLabels;
+	    if (sheets === undefined) {
+	        this._sheets = [];
+	    } else {
+	        this._sheets = sheets;
+	    }
+	};
+
+	/**
+	 * Returns the title of the show.
+	 *
+	 * @return {string} The title of the show.
+	 */
+	Show.prototype.getTitle = function() {
+	    return this._title;
+	};
+
+	/**
+	 * Returns the year during which the show was performed.
+	 *
+	 * @return {string} The year during which the show was
+	 *   performed.
+	 */
+	Show.prototype.getYear = function() {
+	    return this._year;
+	};
+
+	/**
+	 * Returns the show description.
+	 *
+	 * @return {string} The show description.
+	 */
+	Show.prototype.getDescription = function() {
+	    return this._description;
+	};
+
+	/**
+	 * Returns an array containing the labels for
+	 * all dots in the show.
+	 *
+	 * @return {Array<string>} An array of all dot labels.
+	 */
+	Show.prototype.getDotLabels = function() {
+	    return this._dotLabels;
+	};
+
+	/**
+	 * Returns an array of all sheets in the show.
+	 *
+	 * @return {Array<Sheet>} An array of all sheets in the show.
+	 */
+	Show.prototype.getSheets = function() {
+	    return this._sheets;
+	};
+
+	/**
+	 * Returns a particular sheet from the show.
+	 *
+	 * @param {int} index The index of the sheet to retrieve.
+	 *   This can be any integer in the range [0, num_sheets).
+	 *   Notice that the upper bound of the range is exclusive.
+	 *   To find the Nth sheet in a show, you need to request
+	 *   the sheet with an index of N-1 (e.g. to retrive the 5th
+	 *   sheet, you would call getSheet(4)).
+	 * @return {Sheet} The stuntsheet with the specified index.
+	 */
+	Show.prototype.getSheet = function(index) {
+	    return this._sheets[index];
+	};
+
+	/**
+	 * Returns the number of sheets in the show.
+	 *
+	 * @return {int} The number of sheets in the show.
+	 */
+	Show.prototype.getNumSheets = function() {
+	    return this._sheets.length;
+	};
+
+	/**
+	 * Adds a sheet to the back of the show.
+	 *
+	 * @param {Sheet} sheet The sheet to add to the
+	 *   show.
+	 */
+	Show.prototype.appendSheet = function(sheet) {
+	    this._sheets.push(sheet);
+	};
+
+	module.exports = Show;
+
+/***/ },
+/* 28 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the TimedBeats class.
+	 *   TimedBeats objects are loaded from beats files,
+	 *   and are used to help the MusicAnimator find
+	 *   beats in the music.
+	 */
+	 
+	 var ArrayUtils = __webpack_require__(32);
+
+	/**
+	 * TimedBeats objects record a sequence of
+	 * timed beats, and can be used to get
+	 * information about them.
+	 *
+	 * @param {Array<int>=} An array containing
+	 *   the times at which beats occur, in
+	 *   milliseconds. TimedBeats objects are
+	 *   generally used to locate the beats in
+	 *   a music file, so the times are usually
+	 *   relative to the start of an audio file.
+	 *   The array MUST be sorted from least
+	 *   to greatest.
+	 */
+	var TimedBeats = function(beats) {
+	    if (beats !== undefined) {
+	        this._beats = beats;
+	    } else {
+	        this._beats = [];
+	    }
+	};
+
+	/**
+	 * Adds a beat to the TimedBeats object at
+	 * the specified time.
+	 *
+	 * @param {int} beatTime The time of the beat,
+	 *   measured in milliseconds.
+	 */
+	TimedBeats.prototype.addBeat = function(beatTime) {
+	    this.addBeats([beatTime]);
+	};
+
+	/**
+	 * Adds a sequence of beats to the TimedBeats object.
+	 *
+	 * @param {Array<int>} beats An array of times at
+	 *   which beats occur, in milliseconds. This array
+	 *   MUST be sorted from least to greatest.
+	 */
+	TimedBeats.prototype.addBeats = function(beats) {
+	    this._beats = ArrayUtils.mergeSortedArrays(this._beats, beats, this._timeComparator);
+	};
+
+	/**
+	 * Returns the beat number which is active at a particular
+	 * time. An individual beat spans a range of time equal
+	 * to [beatTime, nextBeatTime) (note that the upper bound
+	 * is exclusive). That is, if you ask for a time between
+	 * two beats, this will always return the lower of the two
+	 * beats. This will return undefined if you ask for the
+	 * beat number before the zeroth beat in the show.
+	 *
+	 * @param {int} time The time to check, in milliseconds.
+	 * @return {int} The beat number that is active at the
+	 *   given time, or undefined if the time requested
+	 *   is before the zeroth beat of the show.
+	 */
+	TimedBeats.prototype.getBeatNumAtTime = function(time) {
+	    return ArrayUtils.binarySearchForClosestSmaller(this._beats, time, this._timeComparator);
+	};
+
+	/**
+	 * Returns the time at which the specified beat starts.
+	 *
+	 * @param {int} beatNum The beat to find the start
+	 *   time for.
+	 * @return {int} The time at which the beat starts, in
+	 *   milliseconds.
+	 */
+	TimedBeats.prototype.getBeatTime = function(beatNum) {
+	    return this._beats[beatNum];
+	};
+
+	/**
+	 * Returns the number of recorded beats in this object.
+	 *
+	 * @return {int} The number of beats.
+	 */
+	TimedBeats.prototype.getNumBeats = function() {
+	    return this._beats.length;
+	};
+
+	/**
+	 * A comparator used to order the beats in chronological order.
+	 *
+	 * @param {int} firstTime The time of some beat, in milliseconds.
+	 * @param {int} secondTime The time of some other beat, in milliseconds.
+	 * @return {int} A positive value if the first time should come after
+	 *   the second in chronological order; a negative value if the first
+	 *   should come before the second in chronological order; zero if the
+	 *   times are the same.
+	 */
+	TimedBeats.prototype._timeComparator = function(firstTime, secondTime) {
+	    return firstTime - secondTime;
+	};
+
+	module.exports = TimedBeats;
+
+/***/ },
 /* 29 */
 /***/ function(module, exports, __webpack_require__) {
 
@@ -3980,8 +4000,8 @@
 	 *   SoundManager2.
 	 */
 	 
-	var Sound = __webpack_require__(32);
-	var ClassUtils = __webpack_require__(21);
+	var Sound = __webpack_require__(33);
+	var ClassUtils = __webpack_require__(19);
 	 
 	/**
 	 * SMSound objects play music through SoundManager2.
@@ -4335,6 +4355,28 @@
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
+	 * @fileOverview Defines the Coordinate struct.
+	 */
+
+	/**
+	 * A Coordinate struct marks a two-dimensional position:
+	 * {x: __,y: __}.
+	 *
+	 * @param {float} x The x component of the coordinate.
+	 * @param {float} y The y component of the coordinate.
+	 */
+	var Coordinate = function(x, y) {
+	    this.x = x;
+	    this.y = y;
+	};
+
+	module.exports = Coordinate;
+
+/***/ },
+/* 32 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
 	 * @fileOverview Defines various utility functions that can be used
 	 *   to search/sort/operate on arrays.
 	 */
@@ -4548,7 +4590,7 @@
 	module.exports = ArrayUtils;
 
 /***/ },
-/* 32 */
+/* 33 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4700,28 +4742,6 @@
 
 	module.exports = Sound;
 
-
-/***/ },
-/* 33 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the Coordinate struct.
-	 */
-
-	/**
-	 * A Coordinate struct marks a two-dimensional position:
-	 * {x: __,y: __}.
-	 *
-	 * @param {float} x The x component of the coordinate.
-	 * @param {float} y The y component of the coordinate.
-	 */
-	var Coordinate = function(x, y) {
-	    this.x = x;
-	    this.y = y;
-	};
-
-	module.exports = Coordinate;
 
 /***/ }
 /******/ ])
