@@ -60,8 +60,11 @@ $(document).ready(function () {
     });
 
     $(".js-generate-continuity").click(function () {
-        if (!$(this).hasClass("disabled")) {
-            applicationController.generatePDF();
+        if (!$(this).hasClass("disabled") && $(".js-dot-labels") !== "") {
+            var show = $(".js-select-show").val();
+            var dot = $(".js-dot-labels").val();
+            var defaults = "&md-orientation=west&bev-orientation=east&sd-orientation=east&layout-order=ltr&endsheet-widget=md";
+            window.location.href = "pdf.html?show=" + show + "&dot=" + dot + defaults;
         }
     });
     
@@ -81,9 +84,16 @@ $(document).ready(function () {
     $(".js-select-show")
         .chosen({
             width: "150px",
-            disable_search_threshold: 4 // if there are less than 4 shows, hide search
+            disable_search_threshold: 4, // if there are less than 4 shows, hide search
+            allow_single_deselect: true
         })
         .change(function(evt, params) {
-            applicationController.autoloadShow(params.selected);
+            if (params) { // selected a show
+                window.location.search = "show=" + params.selected;
+            } else { // deselected a show
+                window.location.search = "";
+            }
         });
+
+    applicationController.autoloadShow();
 });
