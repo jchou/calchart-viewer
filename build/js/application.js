@@ -106,8 +106,11 @@
 	    });
 
 	    $(".js-generate-continuity").click(function () {
-	        if (!$(this).hasClass("disabled")) {
-	            applicationController.generatePDF();
+	        if (!$(this).hasClass("disabled") && $(".js-dot-labels") !== "") {
+	            var show = $(".js-select-show").val();
+	            var dot = $(".js-dot-labels").val();
+	            var defaults = "&md-orientation=west&bev-orientation=east&sd-orientation=east&layout-order=ltr&endsheet-widget=md";
+	            window.location.href = "pdf.html?show=" + show + "&dot=" + dot + defaults;
 	        }
 	    });
 	    
@@ -127,11 +130,18 @@
 	    $(".js-select-show")
 	        .chosen({
 	            width: "150px",
-	            disable_search_threshold: 4 // if there are less than 4 shows, hide search
+	            disable_search_threshold: 4, // if there are less than 4 shows, hide search
+	            allow_single_deselect: true
 	        })
 	        .change(function(evt, params) {
-	            applicationController.autoloadShow(params.selected);
+	            if (params) { // selected a show
+	                window.location.search = "show=" + params.selected;
+	            } else { // deselected a show
+	                window.location.search = "";
+	            }
 	        });
+
+	    applicationController.autoloadShow();
 	});
 
 /***/ },
@@ -142,13 +152,13 @@
 	 * @fileOverview The ApplicationController singleton class is defined here.
 	 */
 
-	var Grapher = __webpack_require__(2);
+	var Grapher = __webpack_require__(5);
 	var ShowUtils = __webpack_require__(3);
-	var TimedBeatsUtils = __webpack_require__(4);
-	var MusicAnimator = __webpack_require__(7);
-	var MusicPlayerFactory = __webpack_require__(8);
-	var AnimationStateDelegate = __webpack_require__(5);
-	var PDFGenerator = __webpack_require__(6);
+	var TimedBeatsUtils = __webpack_require__(6);
+	var JSUtils = __webpack_require__(4);
+	var MusicAnimator = __webpack_require__(8);
+	var MusicPlayerFactory = __webpack_require__(9);
+	var AnimationStateDelegate = __webpack_require__(7);
 
 	/**
 	 * The ApplicationController is the backbone of how functional components
@@ -200,34 +210,43 @@
 	ApplicationController.prototype.getShows = function(year) {
 	    var url = "https://calchart-server.herokuapp.com/list/" + year;
 	    $.getJSON(url, function(data) {
-	        var options = data.shows.map(function(show) {
-	            return "<option value='" + show["index_name"] + "'>" + show["title"] + "</option>";
-	        }).join("");
-
-	        $(".js-select-show").html("<option></option>" + options);
+	        $(".js-select-show").append("<option>");
+	        data.shows.forEach(function(show) {
+	            $("<option>")
+	                .attr("value", show["index_name"])
+	                .text(show["title"])
+	                .appendTo(".js-select-show");
+	        });
 	        this[year + "_shows"] = data.shows;
 	    });
 	};
 
 	/**
-	 * Autoloads show from the Calchart server
-	 * @param {String} show is the index_name of the show to get
+	 * Autoloads show from the Calchart server from the URL parameters
 	 */
-	ApplicationController.prototype.autoloadShow = function(index_name) {
+	ApplicationController.prototype.autoloadShow = function() {
+	    var indexName = JSUtils.getURLValue("show");
+	    var optionElem = $(".js-select-show option[value=" + indexName + "]");
+	    if (optionElem.length === 0) {
+	        return;
+	    }
+	    optionElem.prop("selected", true);
+	    $(".js-select-show").trigger("chosen:updated");
+
 	    var url = "https://calchart-server.herokuapp.com/";
 	    var _this = this;
-	    $.getJSON(url + "chart/" + index_name, function(data) {
+	    $.getJSON(url + "chart/" + indexName, function(data) {
 	        var response = JSON.stringify(data);
 	        var viewer = ShowUtils.fromJSON(response);
 	        _this.setShow(viewer);
-	        _this._setFileInputText(".js-viewer-file-btn", index_name);
+	        _this._setFileInputText(".js-viewer-file-btn", indexName);
 	    });
 
-	    $.getJSON(url + "beats/" + index_name, function(data) {
+	    $.getJSON(url + "beats/" + indexName, function(data) {
 	        var response = JSON.stringify(data);
 	        var beats = TimedBeatsUtils.fromJSON(response);
 	        _this._animator.setBeats(beats);
-	        _this._setFileInputText(".js-beats-file-btn", index_name);
+	        _this._setFileInputText(".js-beats-file-btn", indexName);
 	    });
 	};
 
@@ -236,16 +255,19 @@
 	 * this._show has already been loaded.
 	 */
 	ApplicationController.prototype._updateUIWithShow = function () {
-	    if (typeof this._show.getTitle() === "undefined") {
+	    if (this._show.getTitle() === undefined) {
 	        $(".js-show-title").text("Untitled Show");
 	    } else {
 	        $(".js-show-title").text(this._show.getTitle());
 	    }
-	    var options = this._show.getDotLabels().map(function (value) {
-	        return "<option value='" + value + "'>" + value + "</option>";
+	    this._show.getDotLabels().forEach(function(dot) {
+	        $("<option>")
+	            .attr("value", dot)
+	            .attr("data-dot-label", dot)
+	            .text(dot)
+	            .appendTo(".js-dot-labels");
 	    });
-	    var optionsHtml = "<option></option>" + options.join("");
-	    $(".js-dot-labels").html(optionsHtml).trigger("chosen:updated");
+	    $(".js-dot-labels").trigger("chosen:updated");
 	};
 
 	/**
@@ -330,6 +352,8 @@
 	    } else {
 	        $(".js-stuntsheet-label").text(sheetLabel + " (" + sheetPage + ")");
 	    }
+
+	    $(".js-dot-continuity").empty();
 	    if (this._animationStateDelegate.getSelectedDot() !== null) {
 	        var selectedDot = this._animationStateDelegate.getSelectedDot();
 	        $(".js-selected-dot-label").parent().removeClass("disabled");
@@ -337,17 +361,16 @@
 	        var currentSheet = this._animationStateDelegate.getCurrentSheet();
 	        var typeOfDot = currentSheet.getDotType(selectedDot);
 	        var continuities = currentSheet.getContinuityTexts(typeOfDot);
-	        if (typeof continuities !== "undefined") {
-	            continuities = continuities.map(function(continuity) {
-	                return "<div class=\"dot-continuity\">" + continuity + "</div>";
-	            });
-	            $(".js-dot-continuity").html(continuities.join(""));
-	        } else {
-	            $(".js-dot-continuity").html("");
+	        if (continuities !== undefined) {
+	            continuities.forEach(function(continuity) {
+	                $("<div>")
+	                    .addClass("dot-continuity")
+	                    .text(continuity)
+	                    .appendTo(".js-dot-continuity");
+	            })
 	        }
 	    } else {
 	        $(".js-selected-dot-label").parent().addClass("disabled");
-	        $(".js-dot-continuity").html("");
 	    }
 	};
 
@@ -594,21 +617,110 @@
 	    }
 	};
 
-	/**
-	 * Passes relevant information to the PDFGenerator module which will open a PDF
-	 * document that contains the selected dot's continuity for the entire show.
-	 */
-	ApplicationController.prototype.generatePDF = function() {
-	    if (this._animationStateDelegate.getSelectedDot() !== undefined) {
-	        new PDFGenerator(this._show, this._animationStateDelegate.getSelectedDot()).generate();
-	    }
-	};
-
 	module.exports = ApplicationController;
 
 
 /***/ },
-/* 2 */
+/* 2 */,
+/* 3 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines a collection of functions that are
+	 *   used to create and manage Show objects.
+	 */
+
+	 var ViewerFileLoadSelector = __webpack_require__(18);
+	 var Version = __webpack_require__(17);
+	 
+	 /**
+	  * The collection of all functions related to creating and
+	  * managing Show objects.
+	  */
+	 var ShowUtils = {};
+	 
+	/**
+	 * Builds a show from a viewer file, given the content
+	 * of a viewer file as a string.
+	 *
+	 * @param {string} fileContent The content of the
+	 *   viewer file to load the show from.
+	 * @return {Show} The show represented in the viewer
+	 *   file.
+	 */
+	ShowUtils.fromJSON = function(fileContent) {
+	    var viewerFileMainObject = JSON.parse(fileContent); //Parse the JSON file text into an object
+	    var fileVersion = Version.parse(viewerFileMainObject.meta.version); //Get the version of the viewer file
+	    return ViewerFileLoadSelector.getInstance().getAppropriateLoader(fileVersion).loadFile(viewerFileMainObject); //Get the appropriate ViewerLoader and use it to load the file
+	};
+
+	module.exports = ShowUtils;
+
+/***/ },
+/* 4 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines miscellaneous utility functions.
+	 */
+
+	/**
+	 * A collection of javascript utility functions.
+	 */
+	var JSUtils = {};
+	 
+	/**
+	 * Causes a child class to inherit from a parent class.
+	 *
+	 * @param {function} ChildClass The class that will inherit
+	 *   from another.
+	 * @param {function} ParentClass The class to inherit from.
+	 */
+	JSUtils.extends = function (ChildClass, ParentClass) {
+	    var Inheritor = function () {}; // dummy constructor
+	    Inheritor.prototype = ParentClass.prototype;
+	    ChildClass.prototype = new Inheritor();
+	};
+
+	/**
+	 * Returns the value of the given name in the URL query string
+	 *
+	 * getQueryValue("hello") on http://foo.bar?hello=world should return "world"
+	 *
+	 * @param {String} name
+	 * @returns {String|null} the value of the name or null if name not in URL query string
+	 */
+	JSUtils.getURLValue = function(name) {
+	    var vals = this.getAllURLParams();
+	    if (vals[name] !== undefined) {
+	        return vals[name];
+	    } else {
+	        return null;
+	    }
+	};
+
+	/**
+	 * Returns all name-value pairs in the URL query string
+	 *
+	 * @returns {object} a dictionary mapping name to value
+	 */
+	JSUtils.getAllURLParams = function() {
+	    var vals = {};
+	    var query = window.location.search.substr(1);
+	    var vars = query.split("&");
+	    for (var i = 0; i < vars.length; i++) {
+	        var pair = vars[i].split("=");
+	        var name = decodeURIComponent(pair[0]);
+	        var value = decodeURIComponent(pair[1]);
+	        vals[name] = value;
+	    }
+	    return vals;
+	}
+
+	module.exports = JSUtils;
+
+/***/ },
+/* 5 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -937,7 +1049,15 @@
 	            .attr("y", function (dot) { return yScale(dot.getAnimationState(currentBeat).y) - dotRectSize / 2; })
 	            .attr("width", dotRectSize)
 	            .attr("height", dotRectSize)
-	            .attr("fill", colorForDot);
+	            .attr("fill", colorForDot)
+	            .style("cursor", "pointer")
+	            .on("click", function (dot) {
+	                var label = dot.getLabel();
+	                $(".js-dot-labels option[data-dot-label=" + label + "]").prop("selected", true);
+	                $(".js-dot-labels")
+	                    .trigger("chosen:updated")
+	                    .trigger("change", {selected: label});
+	            });
 
 	    var selectedDot = sheet.getDotByLabel(selectedDotLabel);
 	    if (selectedDot) {
@@ -960,42 +1080,7 @@
 
 
 /***/ },
-/* 3 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines a collection of functions that are
-	 *   used to create and manage Show objects.
-	 */
-
-	 var ViewerFileLoadSelector = __webpack_require__(10);
-	 var Version = __webpack_require__(9);
-	 
-	 /**
-	  * The collection of all functions related to creating and
-	  * managing Show objects.
-	  */
-	 var ShowUtils = {};
-	 
-	/**
-	 * Builds a show from a viewer file, given the content
-	 * of a viewer file as a string.
-	 *
-	 * @param {string} fileContent The content of the
-	 *   viewer file to load the show from.
-	 * @return {Show} The show represented in the viewer
-	 *   file.
-	 */
-	ShowUtils.fromJSON = function(fileContent) {
-	    var viewerFileMainObject = JSON.parse(fileContent); //Parse the JSON file text into an object
-	    var fileVersion = Version.parse(viewerFileMainObject.meta.version); //Get the version of the viewer file
-	    return ViewerFileLoadSelector.getInstance().getAppropriateLoader(fileVersion).loadFile(viewerFileMainObject); //Get the appropriate ViewerLoader and use it to load the file
-	};
-
-	module.exports = ShowUtils;
-
-/***/ },
-/* 4 */
+/* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1003,8 +1088,8 @@
 	 *   used to create and manage TimedBeats objects.
 	 */
 
-	 var BeatsFileLoadSelector = __webpack_require__(11);
-	 var Version = __webpack_require__(9);
+	 var BeatsFileLoadSelector = __webpack_require__(19);
+	 var Version = __webpack_require__(17);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -1030,7 +1115,7 @@
 	module.exports = TimedBeatsUtils;
 
 /***/ },
-/* 5 */
+/* 7 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1253,1225 +1338,7 @@
 
 
 /***/ },
-/* 6 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview This file will export a class that can generate a PDF representation
-	 * of dots and movements
-	 *
-	 * @constant WIDTH is the width of the PDF document, in millimeters
-	 * @constant HEIGHT is the height of the PDF document, in millimeters
-	 * @constant QUADRANT contains (x,y) coordinates for the top left corner of each quadrant
-	 *      of the document. y coordinates offset by headers
-	 * @constant DOT_DATA contains the JPEG image data for the different dot types
-	 */
-
-	var MovementCommandEven = __webpack_require__(12);
-	var MovementCommandMove = __webpack_require__(13);
-	var MovementCommandStand = __webpack_require__(14);
-	var MovementCommandGoto = __webpack_require__(15);
-	var MovementCommandMarkTime = __webpack_require__(16);
-	var MovementCommandArc = __webpack_require__(17);
-	var MathUtils = __webpack_require__(18);
-
-	/* CONSTANTS: DON'T CHANGE */
-	var WIDTH = 215.9;
-	var HEIGHT = 279.4;
-
-	var QUADRANT = [
-	    {x: 3, y: 24},                     // top left
-	    {x: WIDTH/2 + 3, y: 24},           // top right
-	    {x: 3, y: HEIGHT/2 + 16},          // bottom left
-	    {x: WIDTH/2 + 3, y: HEIGHT/2 + 16} // bottom right
-	];
-	var QUADRANT_HEIGHT = HEIGHT/2 - 22;
-	var QUADRANT_WIDTH = WIDTH/2 - 6;
-
-	/**
-	 * This PDFGenerator class will be able to generate the PDF representation of the given
-	 * show, for the given dot.
-	 *
-	 * @param {Show} show
-	 * @param {String} dot is the label of the selected dot
-	 */
-	var PDFGenerator = function(show, dot) {
-	    this.pdf = jsPDF("portrait", "mm", "letter");
-	    this.show = show;
-	    this.dot = dot;
-	    this.sheets = show.getSheets();
-	};
-
-	/**
-	 * generate will generate a PDF for a specific dot, containing its movements,
-	 * positions, and continuities relevant to it.
-	 *
-	 * The function will end with a save call, which will prompt a new window and/or
-	 * a dialog box to download the generated PDF.
-	 */
-	PDFGenerator.prototype.generate = function() {
-	    var continuityTexts = this._getContinuityTexts();
-	    var movements = this._getMovements();
-	    for (var pageNum = 0; pageNum < Math.ceil(this.sheets.length / 4); pageNum++) {
-	        if (pageNum != 0) {
-	            this.pdf.addPage();
-	        }
-
-	        var pageSheets = []
-	        for (var i = 0; i < 4; i++) {
-	            var sheet = pageNum * 4 + i;
-	            if (sheet == this.sheets.length) {
-	                break;
-	            }
-	            pageSheets.push(this.sheets[sheet]);
-	        }
-
-	        this._addHeaders(pageNum + 1);
-	        // drawing lines between quadrants
-	        this.pdf.setDrawColor(150);
-	        this.pdf.line(
-	            WIDTH/2, 24,
-	            WIDTH/2, HEIGHT
-	        );
-	        this.pdf.line(
-	            0, HEIGHT/2 + 2.5,
-	            WIDTH, HEIGHT/2 + 2.5
-	        );
-	        this.pdf.setDrawColor(0);
-
-	        for (var i = 0; i < pageSheets.length; i++) {
-	            var x = QUADRANT[i].x;
-	            var y = QUADRANT[i].y;
-	            var sheet = pageSheets[i];
-	            this._addDotContinuity(x, y, sheet);
-	            this._addIndividualContinuity(
-	                continuityTexts[pageNum * 4 + i],
-	                sheet.getDuration(),
-	                x,
-	                y + QUADRANT_HEIGHT / 5,
-	                QUADRANT_WIDTH / 2,
-	                QUADRANT_HEIGHT * 2/5
-	            );
-	            this._addMovementDiagram(
-	                movements[pageNum * 4 + i],
-	                x + QUADRANT_WIDTH / 2 + 1,
-	                y + QUADRANT_HEIGHT / 5,
-	                QUADRANT_WIDTH / 2,
-	                QUADRANT_HEIGHT * 2/5
-	            );
-	            this._addBirdseye(x, y, sheet);
-	            this._addSurroundingDots(x, y, sheet);
-	        }
-	    }
-	    this._addEndSheet(continuityTexts, movements);
-
-	    this.pdf.output("dataurlnewwindow");
-	};
-
-	/**
-	 * Returns the width of a String, in whatever units this.pdf is currently using
-	 * @param {String} text
-	 * @param {int} size, font size the text will be in
-	 */
-	PDFGenerator.prototype._getTextWidth = function(text, size) {
-	    return this.pdf.getStringUnitWidth(text) * size/this.pdf.internal.scaleFactor
-	};
-
-	/**
-	 * Returns the height of text in the current fontsize, in whatever units this.pdf is
-	 * currently using
-	 * @param {int} size, font size the text will be in
-	 */
-	PDFGenerator.prototype._getTextHeight = function(size) {
-	    return size/this.pdf.internal.scaleFactor;
-	};
-
-	/**
-	 * Draws the dot for the given dot type at the given coordinates
-	 * @param {String} dotType
-	 * @param {int} x
-	 * @param {int} y
-	 */
-	PDFGenerator.prototype._drawDot = function(dotType, x, y) {
-	    var radius = 1.5;
-	    this.pdf.setLineWidth(.1);
-	    if (dotType.indexOf("open") != -1) {
-	        this.pdf.setFillColor(255);
-	        this.pdf.circle(x, y, radius, "FD");
-	    } else {
-	        this.pdf.setFillColor(0);
-	        this.pdf.circle(x, y, radius, "FD");
-	    }
-
-	    radius += .1; // line radius sticks out of the circle
-	    if (dotType.indexOf("backslash") != -1 || dotType.indexOf("x") != -1) {
-	        this.pdf.line(
-	            x - radius, y - radius,
-	            x + radius, y + radius
-	        );
-	    }
-
-	    if (dotType.indexOf("forwardslash") != -1 || dotType.indexOf("x") != -1) {
-	        this.pdf.line(
-	            x + radius, y - radius,
-	            x - radius, y + radius
-	        );
-	    }
-	    this.pdf.setLineWidth(.3);
-	    this.pdf.setFillColor(0);
-	};
-
-	/**
-	 * Returns the text that will be shown for the given x-coordinate in
-	 * the form of "4N N40" to mean "4 steps North of the North-40"
-	 *
-	 * @param {int} x, the x-coordinate
-	 * @return {String} the display text for the x-coordinate
-	 */
-	PDFGenerator.prototype._getXCoordinateText = function(x) {
-	    var steps = x % 8;
-	    var yardline = Math.floor(x / 8) * 5;
-
-	    if (steps > 4) { // closer to North-side yardline
-	        yardline += 5;
-	        steps -= 4;
-	    }
-	    steps = Math.round(steps * 10) / 10;
-
-	    if (yardline < 50) {
-	        yardline = "S" + yardline;
-	    } else if (yardline == 50) {
-	        yardline = "50";
-	    } else {
-	        yardline = "N" + (100 - yardline);
-	    }
-
-	    if (steps > 4) {
-	        return steps + "S " + yardline;
-	    } else if (steps == 0) {
-	        return yardline;
-	    } else {
-	        return steps + "N " + yardline;
-	    }
-	};
-
-	/**
-	 * Returns the text that will be shown for the given y-coordinate in
-	 * the form of "8E EH" to mean "8 steps East of the East Hash"
-	 *
-	 * @param {int} y, the y-coordinate
-	 * @return {String} the display text for the y-coordinate
-	 */
-	PDFGenerator.prototype._getYCoordinateText = function(y) {
-	    function round(val) {
-	        return Math.round(val * 10) / 10;
-	    };
-
-	    // West Sideline
-	    if (y == 0) {
-	        return "WS";
-	    }
-	    // Near West Sideline
-	    if (y <= 16) {
-	        return round(y) + " WS";
-	    }
-	    // West of West Hash
-	    if (y < 32) {
-	        return round(32 - y) + "W WH";
-	    }
-	    // West Hash
-	    if (y == 32) {
-	        return "WH";
-	    }
-	    // East of West Hash
-	    if (y <= 40) {
-	        return round(y - 32) + "E WH";
-	    }
-	    // West of East Hash
-	    if (y < 52) {
-	        return round(52 - y) + "W EH";
-	    }
-	    // East Hash
-	    if (y == 52) {
-	        return "EH";
-	    }
-	    // East of East Hash
-	    if (y <= 68) {
-	        return round(y - 52) + "E EH";
-	    }
-	    // Near East Sideline
-	    if (y < 84) {
-	        return round(84 - y) + " ES";
-	    }
-	    // East Sideline
-	    return "ES";
-	};
-
-	/*
-	 * Returns all of the selected dot's individual continuity texts
-	 * @return {Array<Array<String>>} an Array of continuity texts for each sheet
-	 */
-	PDFGenerator.prototype._getContinuityTexts = function() {
-	    var showContinuities = [];
-	    var dotLabel = this.dot;
-	    this.sheets.forEach(function(sheet) {
-	        var continuities = [];
-	        sheet.getDotByLabel(dotLabel).getMovementCommands().forEach(function(movement) {
-	            var text = movement.getContinuityText();
-	            if (text !== "") {
-	                continuities.push(text);
-	            }
-	        });
-	        showContinuities.push(continuities);
-	    });
-	    return showContinuities;
-	};
-
-	/**
-	 * Returns a list of movements for each stuntsheet, which are changes in position with
-	 * respect to the previous position
-	 * @return {Array<Array<Object>>} where each element is a list of movements for each
-	 *   stuntsheet. The Object contains:
-	 *      - {Coordinate} startPosition
-	 *      - {int} deltaX
-	 *      - {int} deltaY
-	 */
-	PDFGenerator.prototype._getMovements = function() {
-	    var moves = [];
-	    var dotLabel = this.dot;
-	    this.sheets.forEach(function(sheet) {
-	        var lines = [];
-	        var movements = sheet.getDotByLabel(dotLabel).getMovementCommands();
-	        var startPosition = movements[0].getStartPosition();
-	        movements.forEach(function(movement) {
-	            var endPosition = movement.getEndPosition();
-	            if (movement instanceof MovementCommandArc) {
-	                // each item is an Array of (deltaX, deltaY) pairs
-	                movement.getMiddlePoints().forEach(function(move) {
-	                    lines.push({
-	                        startPosition: startPosition,
-	                        deltaX: move[0],
-	                        deltaY: move[1]
-	                    });
-	                });
-	            } else {
-	                lines.push({
-	                    startPosition: startPosition,
-	                    deltaX: endPosition.x - startPosition.x,
-	                    deltaY: endPosition.y - startPosition.y
-	                });
-	            }
-	            startPosition = endPosition;
-	        });
-	        moves.push(lines);
-	    });
-	    return moves;
-	};
-
-	/**
-	 * Draws the headers on the PDF. Includes:
-	 *      - Stuntsheet number
-	 *      - Dot number
-	 *      - "California Marching Band: <show title>"
-	 *      - Page number
-	 *
-	 * @param {int} pageNum is the current 1-indexed page number
-	 */
-	PDFGenerator.prototype._addHeaders = function(pageNum) {
-	    var totalPages = Math.ceil(this.sheets.length/4);
-	    var _this = this; // for use in nested functions
-
-	    var header = {
-	        title: {
-	            text: _this.show.getTitle(),
-	            label: "Dot " + _this.dot,
-	            size: 16,
-
-	            getX: function(text) {
-	                return WIDTH/2 - _this._getTextWidth(text, this.size)/2;
-	            },
-
-	            getY: function() {
-	                return header.y + header.paddingY + _this._getTextHeight(this.size);
-	            }
-	        },
-
-	        pageInfo: {
-	            size: 12,
-
-	            getWidth: function() {
-	                return _this._getTextWidth("Page " + pageNum + "/" + totalPages, this.size);
-	            },
-
-	            getHeight: function() {
-	                return _this._getTextHeight(this.size);
-	            },
-
-	            draw: function() {
-	                _this.pdf.text(
-	                    "Page ",
-	                    this.x,
-	                    this.y
-	                )
-	                this.x += _this._getTextWidth("Page ", this.size);
-	                _this.pdf.text(
-	                    String(pageNum),
-	                    this.x,
-	                    this.y - 1
-	                );
-	                this.x += _this._getTextWidth(String(pageNum), this.size);
-	                _this.pdf.text(
-	                    "/",
-	                    this.x,
-	                    this.y
-	                );
-	                this.x += _this._getTextWidth("/", this.size);
-	                _this.pdf.text(
-	                    String(totalPages),
-	                    this.x,
-	                    this.y + 1
-	                );
-	            }
-	        },
-
-	        x: WIDTH * 1/6,
-	        y: 5,
-	        width: WIDTH * 2/3,
-	        height: _this._getTextHeight(16) * 3,
-	        paddingX: 3,
-	        paddingY: 1,
-
-	        draw: function() {
-	            /* box */
-	            _this.pdf.rect(this.x, this.y, this.width, this.height);
-
-	            /* title */
-	            _this.pdf.setFontSize(this.title.size);
-	            _this.pdf.text(
-	                this.title.text,
-	                this.title.getX(this.title.text),
-	                this.title.getY()
-	            );
-	            _this.pdf.setFontSize(this.title.size - 3);
-	            _this.pdf.text(
-	                this.title.label,
-	                this.title.getX(this.title.label),
-	                this.title.getY() + _this._getTextHeight(this.title.size - 3) + 2
-	            );
-
-	            /* page info */
-	            _this.pdf.setFontSize(this.pageInfo.size);
-	            this.pageInfo.x = this.x + this.paddingX;
-	            this.pageInfo.y = this.y + this.height/2 + this.pageInfo.getHeight()/2;
-	            this.pageInfo.draw();
-
-	            this.pageInfo.x = WIDTH * 5/6 - this.paddingX - this.pageInfo.getWidth();
-	            this.pageInfo.draw();
-	        }
-	    };
-
-	    var sheetInfo = {
-	        marginX: 4,
-	        marginY: 3,
-	        size: 28,
-	        sheet: (pageNum - 1) * 4 + 1,
-
-	        getTop: function() {
-	            return this.marginY + this.height;
-	        },
-
-	        getBottom: function() {
-	            return this.getTop() + HEIGHT/2;
-	        },
-
-	        getLeft: function() {
-	            return this.marginX;
-	        },
-
-	        getRight: function() {
-	            return WIDTH - this.width;
-	        },
-
-	        hasNext: function() {
-	            return ++this.sheet <= _this.sheets.length;
-	        },
-
-	        draw: function(x, y) {
-	            _this.pdf.text("SS " + this.sheet, x, y);
-	        }
-	    };
-
-	    /* Title and Page information */
-	    header.draw();
-
-	    /* Stuntsheet */
-	    sheetInfo.height = _this._getTextHeight(sheetInfo.size);
-	    sheetInfo.width = _this._getTextWidth("SS 00", sheetInfo.size) + sheetInfo.marginX;
-	    _this.pdf.setFontSize(sheetInfo.size);
-
-	    sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getTop());
-
-	    if (sheetInfo.hasNext()) {
-	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getTop());
-	    }
-
-	    if (sheetInfo.hasNext()) {
-	        sheetInfo.draw(sheetInfo.getLeft(), sheetInfo.getBottom());
-	    }
-
-	    if (sheetInfo.hasNext()) {
-	        sheetInfo.draw(sheetInfo.getRight(), sheetInfo.getBottom());
-	    }
-	};
-
-	/**
-	 * Writes one stuntsheet's continuity for the given dot type on the PDF. Includes:
-	 *      - Dot circle type
-	 *      - Overall Continuity
-	 *      - Measure/beat number
-	 *
-	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
-	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
-	 * @param {Sheet} sheet the current sheet
-	 */
-	PDFGenerator.prototype._addDotContinuity = function(quadrantX, quadrantY, sheet) {
-	    var _this = this; // for use in nested functions
-
-	    var box = {
-	        paddingX: 2,
-	        paddingY: 1,
-
-	        draw: function(height) {
-	            _this.pdf.rect(quadrantX, quadrantY, QUADRANT_WIDTH, height);
-	        }
-	    };
-
-	    var text = {
-	        x: quadrantX + box.paddingX,
-	        y: quadrantY + box.paddingY,
-	        size: 10,
-
-	        // width is the width of the containing box
-	        draw: function() {
-	            var _size = this.size;
-	            var dotType = sheet.getDotType(_this.dot);
-	            var maxWidth = QUADRANT_WIDTH - box.paddingX*2 - 6;
-
-	            var continuities = sheet.getContinuityTexts(dotType);
-
-	            // fail-safe for sheets without Continuity Texts
-	            if (typeof continuities === "undefined") {
-	                box.draw(_this._getTextHeight(_size) + box.paddingY * 2 + 1);
-	                return;
-	            }
-
-	            continuities = continuities.map(function(text) {
-	                while (_this._getTextWidth(text, _size) > maxWidth) {
-	                    _size--;
-	                }
-
-	                return text;
-	            });
-
-	            var maxHeight = (QUADRANT_HEIGHT/5 - 2*box.paddingY - 3);
-	            while (continuities.length * _this._getTextHeight(_size) > maxHeight) {
-	                _size -= 1;
-	            }
-
-	            _this.pdf.setFontSize(this.size);
-	            _this._drawDot(dotType, this.x + 1.5, this.y + 2);
-	            this.x += 4;
-	            _this.pdf.text(
-	                ":",
-	                this.x,
-	                this.y + _this._getTextHeight(this.size)
-	            );
-	            _this.pdf.setFontSize(_size);
-	            this.x += 2;
-	            this.y += _this._getTextHeight(_size);
-	            _this.pdf.text(
-	                continuities,
-	                this.x,
-	                this.y
-	            );
-
-	            box.draw(QUADRANT_HEIGHT/5 - 1.5);
-	        }
-	    };
-
-	    text.draw();
-	};
-
-	/**
-	 * Writes the continuities for the selected dot on the PDF. Includes:
-	 *      - Movements
-	 *      - Total beats
-	 *      - Border between general movements, e.g. Stand and Play vs. Continuity
-	 *
-	 * @param {Array<String>} continuities, a list of continuities for a sheet
-	 * @param {int} duration the beats in this sheet
-	 * @param {int} x  The x-coordinate of the top left corner of the continuity box
-	 * @param {int} y  The y-coordinate of the top left corner of the continuity box
-	 * @param {double} width The width of the continuity box
-	 * @param {double} height The height of the continuity box
-	 */
-	PDFGenerator.prototype._addIndividualContinuity = function(continuities, duration, x, y, width, height) {
-	    var box = {
-	        height: height,
-	        width: width,
-	        x: x,
-	        y: y,
-	        paddingX: 2,
-	        paddingY: 1,
-	        size: 10
-	    };
-	    var textHeight = this._getTextHeight(box.size);
-	    var textY = box.y + box.paddingY;
-	    var textX = box.x + box.paddingX;
-	    var maxWidth = 0; // keeps track of longest continuity length
-	    var deltaY = 0; // keeps track of total height of all continuities
-
-	    this.pdf.rect(box.x, box.y, box.width, box.height);
-	    this.pdf.setFontSize(box.size);
-	    for (var i = 0; i < continuities.length; i++) {
-	        var continuity = continuities[i];
-	        var length = this._getTextWidth(continuity, box.size);
-	        if (length > maxWidth) {
-	            maxWidth = length;
-	        }
-	        deltaY += this._getTextHeight(box.size) + .7;
-	        if (deltaY > box.height - textHeight - box.paddingY) {
-	            if (maxWidth < box.width/2) {
-	                textX += box.width/2;
-	                deltaY = this._getTextHeight(box.size) + .7;
-	            } else {
-	                this.pdf.text("...", textX, textY);
-	                break;
-	            }
-	        }
-
-	        this.pdf.text(
-	            continuity,
-	            textX,
-	            textY + deltaY
-	        );
-	    }
-
-	    var totalLabel = duration + " beats total";
-	    this.pdf.text(
-	        totalLabel,
-	        x + box.width/2 - this._getTextWidth(totalLabel, box.size)/2 - 3,
-	        box.y + box.height - box.paddingY
-	    );
-	};
-
-	/**
-	 * Draws the diagram for a selected dot's movements. Includes:
-	 *      - Circle for start
-	 *      - Cross for end
-	 *      - Path line and number of steps per movement
-	 *      - Yard lines, yard line markers
-	 *      - Hashes if in viewport
-	 *      - Zooming if big
-	 *      - Orientation EWNS; East is up
-	 *
-	 * @param {Array<Objects>} movements, where each item is an object containing values for
-	 *      deltaX and deltaY for each movement and the starting Coordinate
-	 * @param {int} x  The x-coordinate of the top left corner of the movement diagram area
-	 * @param {int} y  The y-coordinate of the top left corner of the movement diagram area
-	 * @param {double} width The width of the containing box
-	 * @param {double} height The height of the containing box
-	 * @param {boolean} isEndSheet
-	 */
-	PDFGenerator.prototype._addMovementDiagram = function(movements, x, y, width, height, isEndSheet) {
-	    var _this = this;
-
-	    // draws box and field
-	    var box = {
-	        x: x,
-	        y: y,
-	        width: width - 2 * (_this._getTextWidth("S", 12) + 1.5),
-	        height: height - 2 * (_this._getTextHeight(12) + 2),
-	        textSize: 12,
-	        yardTextSize: height * 11/47.1,
-
-	        // params are boundaries of viewport
-	        // left, right are steps from South sideline; top, bottom are steps from West sideline
-	        // scale is units per step
-	        draw: function(left, right, top, bottom, scale) {
-	            var textHeight = _this._getTextHeight(this.textSize);
-	            var textWidth = _this._getTextWidth("S", this.textSize);
-	            _this.pdf.setFontSize(this.textSize);
-	            if (isEndSheet) {
-	                this.y -= textHeight;
-	            } else {
-	                _this.pdf.text(
-	                    "E",
-	                    this.x + this.width / 2 + textWidth,
-	                    this.y + textHeight
-	                );
-	                _this.pdf.text(
-	                    "W",
-	                    this.x + this.width / 2 + textWidth,
-	                    this.y + 2 * textHeight + this.height + 2
-	                );
-	            }
-	            _this.pdf.text(
-	                "S",
-	                this.x + this.width + textWidth + 3,
-	                this.y + this.height / 2 + textHeight * 3/2
-	            );
-	            _this.pdf.text(
-	                "N",
-	                this.x + 1,
-	                this.y + this.height / 2 + textHeight * 3/2
-	            );
-	            this.x += textWidth + 2;
-	            this.y += textHeight + 2;
-	            _this.pdf.rect(
-	                this.x,
-	                this.y,
-	                this.width,
-	                this.height
-	            );
-
-	            var westHash = bottom < 32 && top > 32;
-	            var eastHash = bottom < 52 && top > 52;
-	            var hashLength = 3;
-
-	            // position of first yardline in viewport
-	            var i = (left - Math.floor(left/8) * 8) * scale;
-	            var yardlineNum = Math.floor(left/8) * 5;
-
-	            // 4-step line before first line
-	            if (i - scale * 4 > 0) {
-	                _this.pdf.setDrawColor(200);
-	                _this.pdf.line(
-	                    this.x + i - scale * 4, this.y,
-	                    this.x + i - scale * 4, this.y + this.height
-	                );
-	                _this.pdf.setDrawColor(0);
-	            }
-
-	            for (; i < this.width && yardlineNum <= 100; i += scale * 8, yardlineNum -= 5) {
-	                _this.pdf.line(
-	                    this.x + i, this.y,
-	                    this.x + i, this.y + this.height
-	                );
-	                if (westHash) {
-	                    var y = this.y + this.height - (32 - bottom) * scale;
-	                    _this.pdf.line(
-	                        this.x + i - hashLength/2, y,
-	                        this.x + i + hashLength/2, y
-	                    );
-	                }
-	                if (eastHash) {
-	                    var y = this.y + this.height - (52 - bottom) * scale;
-	                    _this.pdf.line(
-	                        this.x + i - hashLength/2, y,
-	                        this.x + i + hashLength/2, y
-	                    );
-	                }
-
-	                var yardlineText = "";
-	                if (yardlineNum < 50) {
-	                    yardlineText = String(yardlineNum);
-	                } else {
-	                    yardlineText = String(100 - yardlineNum);
-	                }
-	                if (yardlineText.length == 1) {
-	                    yardlineText = "0" + yardlineText;
-	                }
-	                _this.pdf.setTextColor(150);
-	                _this.pdf.setFontSize(this.yardTextSize);
-	                var halfTextWidth = _this._getTextWidth(yardlineText, this.yardTextSize)/2;
-
-	                if (i > halfTextWidth) {
-	                    // include first character if room
-	                    _this.pdf.text(
-	                        yardlineText[0],
-	                        this.x + i - halfTextWidth - .5,
-	                        this.y + this.height - 2
-	                    );
-	                }
-	                if (i < this.width - halfTextWidth) {
-	                    // include second character if room
-	                    _this.pdf.text(
-	                        yardlineText[1],
-	                        this.x + i + .5,
-	                        this.y + this.height - 2
-	                    );
-	                }
-
-	                // 4-step line after yardline 
-	                if (i + scale * 4 < this.width) {
-	                    _this.pdf.setDrawColor(200);
-	                    _this.pdf.line(
-	                        this.x + i + scale * 4, this.y,
-	                        this.x + i + scale * 4, this.y + this.height
-	                    );
-	                    _this.pdf.setDrawColor(0);
-	                }
-	            }
-	            _this.pdf.setTextColor(0);
-	        },
-
-	        // draws movement lines and labels starting at (x, y) in steps from edge of viewport
-	        lines: function(x, y, scale) {
-	            x = this.x + x * scale;
-	            y = this.y + y * scale;
-	            var spotRadius = this.height / 15;
-	            _this.pdf.circle(x, y, spotRadius);
-	            _this.pdf.setLineWidth(0.5);
-	            for (var i = 0; i < movements.length; i++) {
-	                var movement = movements[i];
-	                // negative because orientation flipped
-	                var deltaX = -movement.deltaX * scale;
-	                var deltaY = -movement.deltaY * scale;
-
-	                _this.pdf.line(x, y, x + deltaX, y + deltaY);
-	                x += deltaX;
-	                y += deltaY;
-	            }
-	            _this.pdf.setLineWidth(0.1);
-	            _this.pdf.line(
-	                x - spotRadius, y - spotRadius,
-	                x + spotRadius, y + spotRadius
-	            );
-	            _this.pdf.line(
-	                x + spotRadius, y - spotRadius,
-	                x - spotRadius, y + spotRadius
-	            );
-	        }
-	    };
-
-	    var start = movements[0].startPosition;
-	    // calculates scale of viewport
-	    var viewport = {
-	        startX: start.x,
-	        startY: start.y,
-	        minX: 0, // minX <= 0, maximum movement South
-	        minY: 0, // minY <= 0, maximum movement West
-	        maxX: 0, // maxX >= 0, maximum movement North
-	        maxY: 0, // maxY >= 0, maximum movement East
-	        deltaX: 0, // overall change in NS
-	        deltaY: 0, // overall change in EW
-	        width: 20, // in steps
-	        height: box.height/box.width * 20, // in steps, keeping height/width ratio
-	        update: function(x, y) {
-	            this.deltaX += x;
-	            this.deltaY += y;
-	            if (this.deltaX < this.minX) {
-	                this.minX = this.deltaX;
-	            } else if (this.deltaX > this.maxX) {
-	                this.maxX = this.deltaX;
-	            }
-
-	            if (this.deltaY < this.minY) {
-	                this.minY = this.deltaY;
-	            } else if (this.deltaY > this.maxY) {
-	                this.maxY = this.deltaY;
-	            }
-	        },
-	        getOverallX: function() {
-	            return this.maxX - this.minX;
-	        },
-	        getOverallY: function() {
-	            return this.maxY - this.minY;
-	        },
-	        scale: function() {
-	            var deltaX = this.getOverallX();
-	            var deltaY = this.getOverallY();
-	            if (deltaX > this.width - 4) {
-	                this.width = deltaX + 4;
-	                this.height = box.height/box.width * this.width;
-	            }
-	            if (deltaY > this.height - 4) {
-	                this.height = deltaY + 4;
-	                this.width = box.width/box.height * this.height;
-	            }
-	        }
-	    };
-
-	    movements.forEach(function(move) {
-	        viewport.update(move.deltaX, move.deltaY);
-	    });
-	    viewport.scale();
-
-	    // units per step
-	    var scale = box.width / viewport.width;
-	    // steps from sideline until start of viewport
-	    var south = viewport.startX + viewport.maxX - viewport.getOverallX()/2 - viewport.width/2;
-	    var west = viewport.startY + viewport.maxY - viewport.getOverallY()/2 - viewport.height/2;
-	    var north = south + viewport.width;
-	    var east = west + viewport.height;
-	    // orientation East up
-	    box.draw(north, south, east, west, scale);
-	    box.lines(north - viewport.startX, east - viewport.startY, scale);
-
-	    // drawing lines denoting vertical position
-	    function drawPosition(x, y) {
-	        var lineY = box.y + (east - y) * scale;
-	        var text = _this._getYCoordinateText(y);
-	        _this.pdf.line(
-	            box.x, lineY,
-	            box.x + box.width, lineY
-	        );
-	        _this.pdf.setFontSize(8);
-	        if (north - x < (north - south) / 2) {
-	            _this.pdf.text(
-	                text,
-	                box.x + box.width - _this._getTextWidth(text, 8),
-	                lineY - .5
-	            );
-	        } else {
-	            _this.pdf.text(
-	                text,
-	                box.x + .5,
-	                lineY - .5
-	            );
-	        }
-	    };
-
-	    drawPosition(viewport.startX, viewport.startY);
-	    if (viewport.deltaY != 0) {
-	        drawPosition(
-	            viewport.startX + viewport.deltaX,
-	            viewport.startY + viewport.deltaY
-	        );
-	    }
-	};
-
-	/**
-	 * Draws the overall bird's eye view of the field. Includes:
-	 *      - Field outline, no yardlines/hashes
-	 *      - Form outline, continuous for 4-step EW, 2-step NS
-	 *      - Circle selected dot
-	 *      - Cross hairs for positions (4S N40, 2E WH)
-	 *
-	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
-	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
-	 * @param {Sheet} sheet
-	 */
-	PDFGenerator.prototype._addBirdseye = function(quadrantX, quadrantY, sheet) {
-	    var _this = this;
-
-	    var box = {
-	        height: QUADRANT_HEIGHT * 2/5 - 2 * (this._getTextHeight(12) + 2),
-	        width: QUADRANT_WIDTH / 2 - 2 * (this._getTextWidth("S", 12) + 1.5),
-	        x: quadrantX,
-	        y: quadrantY + QUADRANT_HEIGHT * 3/5,
-	        textSize: 12,
-
-	        draw: function() {
-	            var textHeight = _this._getTextHeight(this.textSize);
-	            var textWidth = _this._getTextWidth("S", this.textSize);
-	            _this.pdf.setFontSize(this.textSize);
-	            _this.pdf.text(
-	                "W",
-	                this.x + QUADRANT_WIDTH / 4 - textWidth/2,
-	                this.y + textHeight
-	            );
-	            _this.pdf.text(
-	                "N",
-	                this.x + QUADRANT_WIDTH/2 - textWidth,
-	                this.y + QUADRANT_HEIGHT / 5 + textHeight / 2
-	            );
-	            _this.pdf.text(
-	                "E",
-	                this.x + QUADRANT_WIDTH / 4 - textWidth/2,
-	                this.y + QUADRANT_HEIGHT * 2/5 - 1
-	            );
-	            _this.pdf.text(
-	                "S",
-	                this.x + 1,
-	                this.y + QUADRANT_HEIGHT / 5 + textHeight / 2
-	            );
-	            this.x += textWidth + 2;
-	            this.y += textHeight + 2;
-	            _this.pdf.rect(
-	                this.x,
-	                this.y,
-	                this.width,
-	                this.height
-	            );
-	        }
-	    };
-
-	    box.draw();
-
-	    var dots = sheet.getDots();
-	    var currentDot = sheet.getDotByLabel(this.dot);
-	    var scale = box.width / 160; // units per step
-	    var startX = box.x;
-	    var startY = box.y + (box.height - scale * 84) / 2;
-
-	    // drawing hashes
-	    this.pdf.setLineWidth(.2);
-	    var numDashes = 21;
-	    var dashLength = box.width / numDashes;
-	    var westHash = startY + 32 * scale;
-	    var eastHash = startY + 52 * scale;
-	    for (var i = 0; i < numDashes; i++) {
-	        if (i % 2 == 0) {
-	            this.pdf.setDrawColor(150);
-	        } else {
-	            this.pdf.setDrawColor(255);
-	        }
-	        var x = startX + i * dashLength;
-	        this.pdf.line(
-	            x, westHash,
-	            x + dashLength, westHash
-	        );
-	        this.pdf.line(
-	            x, eastHash,
-	            x + dashLength, eastHash
-	        );
-	    }
-
-	    this.pdf.setFillColor(210);
-	    for (var i = 0; i < dots.length; i++) {
-	        var dot = dots[i];
-	        if (dot === currentDot) { // skip currently selected dot
-	            continue;
-	        }
-	        var position = dot.getAnimationState(0);
-	        this.pdf.circle(
-	            startX + position.x * scale,
-	            startY + position.y * scale,
-	            .5,
-	            "F"
-	        );
-	    }
-
-	    var position = currentDot.getAnimationState(0);
-	    var x = position.x * scale;
-	    var y = position.y * scale;
-
-	    var coordinates = {
-	        textSize: 8,
-	        textX: this._getXCoordinateText(position.x),
-	        textY: this._getYCoordinateText(position.y)
-	    };
-
-	    coordinates.x = startX + x - this._getTextWidth(coordinates.textX, coordinates.textSize)/2;
-	    coordinates.y = startY + y + this._getTextHeight(coordinates.textSize)/4;
-
-	    this.pdf.setFillColor(0);
-	    this.pdf.setDrawColor(180);
-	    this.pdf.setFontSize(coordinates.textSize);
-
-	    this.pdf.line(
-	        startX + x, box.y,
-	        startX + x, box.y + box.height
-	    );
-	    this.pdf.line(
-	        startX, startY + y,
-	        startX + box.width, startY + y
-	    );
-
-	    this.pdf.text(
-	        coordinates.textX,
-	        coordinates.x,
-	        box.y + this._getTextHeight(coordinates.textSize)
-	    );
-
-	    // Put vertical coordinate text on opposite side of the field
-	    if (position.x > 80) {
-	        this.pdf.text(
-	            coordinates.textY,
-	            startX + 1,
-	            coordinates.y
-	        );
-	    } else {
-	        this.pdf.text(
-	            coordinates.textY,
-	            startX + box.width - this._getTextWidth(coordinates.textY, coordinates.textSize) - 1,
-	            coordinates.y
-	        );
-	    }
-	    this.pdf.circle(startX + x, startY + y, .5, 'F');
-	    this.pdf.setLineWidth(.3);
-	    this.pdf.setDrawColor(0);
-	};
-
-	/**
-	 * Draws the dots surrounding the selected dot. Includes:
-	 *      - Orientation always E up (for now)
-	 *      - 4 step radius
-	 *      - Solid line cross hairs; selected dot in middle
-	 *      - Dot labels
-	 *      - Dot types
-	 *
-	 * @param {int} quadrantX  The x-coordinate of the top left corner of the quadrant
-	 * @param {int} quadrantY  The y-coordinate of the top left corner of the quadrant
-	 * @param {Sheet} sheet
-	 */
-	PDFGenerator.prototype._addSurroundingDots = function(quadrantX, quadrantY, sheet) {
-	    var _this = this;
-	    var box = {
-	        height: QUADRANT_HEIGHT * 2/5 - 2 * (this._getTextHeight(12) + 2),
-	        x: quadrantX + QUADRANT_WIDTH / 2 + 1,
-	        y: quadrantY + QUADRANT_HEIGHT * 3/5,
-	        textSize: 12,
-	        labelSize: 7,
-
-	        draw: function(surroundingDots, start) {
-	            var textHeight = _this._getTextHeight(this.textSize);
-	            var textWidth = _this._getTextWidth("S", this.textSize);
-	            var scale = this.height / 10; // 5 step radius for viewport
-	            this.width = this.height; // make square
-	            _this.pdf.setFontSize(this.textSize);
-	            _this.pdf.text(
-	                "E",
-	                this.x + QUADRANT_WIDTH / 4 - textWidth/2,
-	                this.y + textHeight
-	            );
-	            _this.pdf.text(
-	                "S",
-	                this.x + QUADRANT_WIDTH/2 - textWidth - 4.5,
-	                this.y + QUADRANT_HEIGHT / 5 + textHeight / 2
-	            );
-	            _this.pdf.text(
-	                "W",
-	                this.x + QUADRANT_WIDTH / 4 - textWidth/2,
-	                this.y + QUADRANT_HEIGHT * 2/5 - 1
-	            );
-	            _this.pdf.text(
-	                "N",
-	                this.x + 4.5,
-	                this.y + QUADRANT_HEIGHT / 5 + textHeight / 2
-	            );
-	            this.x += QUADRANT_WIDTH/4 - this.width/2;
-	            this.y += textHeight + 2;
-	            _this.pdf.rect(
-	                this.x,
-	                this.y,
-	                this.width,
-	                this.height
-	            );
-	            _this.pdf.setDrawColor(150);
-	            _this.pdf.setLineWidth(.1);
-	            // cross hairs for selected dot
-	            _this.pdf.line(
-	                this.x + this.width/2, this.y,
-	                this.x + this.width/2, this.y + this.height
-	            );
-	            _this.pdf.line(
-	                this.x, this.y + this.height/2,
-	                this.x + this.width, this.y + this.height/2
-	            );
-	            _this.pdf.setDrawColor(0);
-	            _this.pdf.setLineWidth(.3);
-	            var origin = {
-	                x: this.x + this.width/2,
-	                y: this.y + this.height/2
-	            };
-	            for (var i = 0; i < surroundingDots.length; i++) {
-	                var dot = surroundingDots[i];
-	                var x = dot.deltaX * scale + origin.x;
-	                var y = dot.deltaY * scale + origin.y;
-	                _this.pdf.setFontSize(this.labelSize);
-	                _this._drawDot(dot.type, x, y);
-	                _this.pdf.text(dot.label, x - 3, y - 2);
-	            }
-	        }
-	    };
-
-	    var start = sheet.getDotByLabel(this.dot).getAnimationState(0);
-	    var allDots = sheet.getDots();
-	    var surroundingDots = [];
-	    for (var i = 0; i < allDots.length; i++) {
-	        var position = allDots[i].getAnimationState(0);
-	        var x = start.x - position.x;
-	        var y = start.y - position.y;
-	        // keep dots within 4 steps
-	        if (Math.abs(x) <= 4 && Math.abs(y) <= 4) {
-	            var label = allDots[i].getLabel();
-	            surroundingDots.push({
-	                deltaX: x,
-	                deltaY: y,
-	                label: label,
-	                type: sheet.getDotType(label)
-	            });
-	        }
-	    }
-
-	    box.draw(surroundingDots);
-	};
-
-	/**
-	 * Draws the end sheet containing a compilation of all the continuities and movements diagrams
-	 * @param {Array<Array<String>>} continuityTexts a list of continuities grouped by stuntsheet
-	 * @param {Array<Array<Object>>} movements a list of movement objects grouped by stuntsheet
-	 */
-	PDFGenerator.prototype._addEndSheet = function(continuityTexts, movements) {
-	    this.pdf.addPage();
-	    this.pdf.line(
-	        WIDTH/2, 0,
-	        WIDTH/2, HEIGHT
-	    );
-	    var paddingX = 2;
-	    var paddingY = .5;
-	    var textSize = 10;
-	    var textHeight = this._getTextHeight(textSize);
-	    var labelSize = 20;
-	    var labelWidth = this._getTextWidth("00", labelSize) + paddingX * 2;
-	    var labelHeight = this._getTextHeight(labelSize);
-	    var diagramSize = 30;
-	    var continuitySize = WIDTH/2 - diagramSize - labelWidth - paddingX * 4;
-	    var x = 0;
-	    var y = 10;
-	    for (var i = 0; i < this.sheets.length; i++) {
-	        var height = diagramSize - 9;
-	        var continuityHeight = (continuityTexts[i].length + 1) * (textHeight + 1) + 2*paddingY;
-	        if (continuityHeight > height) {
-	            height = continuityHeight;
-	        }
-	        if (y + height > HEIGHT) {
-	            if (x == 0) {
-	                x = WIDTH/2 + paddingX;
-	            } else {
-	                this.pdf.addPage();
-	                this.pdf.line(
-	                    WIDTH/2, 0,
-	                    WIDTH/2, HEIGHT
-	                );
-	                x = 0;
-	            }
-	            y = 10;
-	        }
-	        this.pdf.setFontSize(labelSize);
-	        this.pdf.text(
-	            String(i + 1),
-	            x + paddingX * 2,
-	            y + paddingY + labelHeight
-	        );
-	        this._addIndividualContinuity(
-	            continuityTexts[i],
-	            this.sheets[i].getDuration(),
-	            x + labelWidth + paddingX,
-	            y + paddingY,
-	            continuitySize,
-	            height
-	        );
-	        this._addMovementDiagram(
-	            movements[i],
-	            x + labelWidth + continuitySize + paddingX * 2,
-	            y + paddingY,
-	            diagramSize,
-	            diagramSize,
-	            true
-	        );
-	        y += height + 2 * paddingY;
-	    }
-	};
-
-	module.exports = PDFGenerator;
-
-
-/***/ },
-/* 7 */
+/* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2747,7 +1614,7 @@
 	module.exports = MusicAnimator;
 
 /***/ },
-/* 8 */
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2755,7 +1622,7 @@
 	 *   generate a MusicPlayer that will play audio for us.
 	 */
 
-	var SMMusicPlayer = __webpack_require__(19);
+	var SMMusicPlayer = __webpack_require__(21);
 	 
 	/**
 	 * MusicPlayerFactory objects can create an appropriate MusicPlayer object
@@ -2778,7 +1645,14 @@
 	module.exports = MusicPlayerFactory;
 
 /***/ },
-/* 9 */
+/* 10 */,
+/* 11 */,
+/* 12 */,
+/* 13 */,
+/* 14 */,
+/* 15 */,
+/* 16 */,
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2854,7 +1728,7 @@
 	module.exports = Version;
 
 /***/ },
-/* 10 */
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2872,19 +1746,19 @@
 	 *   
 	 */
 
-	var FileLoadSelector = __webpack_require__(20);
-	var InvalidFileTypeError = __webpack_require__(21);
-	var ClassUtils = __webpack_require__(22);
-	var Version = __webpack_require__(9);
-	var Dot = __webpack_require__(23);
-	var Sheet = __webpack_require__(24);
-	var Show = __webpack_require__(25);
-	var MovementCommandStand = __webpack_require__(14);
-	var MovementCommandMarkTime = __webpack_require__(16);
-	var MovementCommandArc = __webpack_require__(17);
-	var MovementCommandMove = __webpack_require__(13);
-	var MovementCommandGoto = __webpack_require__(15);
-	var MovementCommandEven = __webpack_require__(12);
+	var FileLoadSelector = __webpack_require__(22);
+	var InvalidFileTypeError = __webpack_require__(23);
+	var JSUtils = __webpack_require__(4);
+	var Version = __webpack_require__(17);
+	var Dot = __webpack_require__(24);
+	var Sheet = __webpack_require__(25);
+	var Show = __webpack_require__(26);
+	var MovementCommandStand = __webpack_require__(27);
+	var MovementCommandMarkTime = __webpack_require__(28);
+	var MovementCommandArc = __webpack_require__(29);
+	var MovementCommandMove = __webpack_require__(30);
+	var MovementCommandGoto = __webpack_require__(31);
+	var MovementCommandEven = __webpack_require__(32);
 	 
 	/**
 	 * Every version of the Viewer File needs to be loaded in a different way -
@@ -2895,7 +1769,7 @@
 	    FileLoadSelector.apply(this, []);
 	};
 
-	ClassUtils.extends(ViewerFileLoadSelector, FileLoadSelector);
+	JSUtils.extends(ViewerFileLoadSelector, FileLoadSelector);
 
 	/**
 	 * The ViewerFileLoadSelector is a singleton, and this is its
@@ -2934,7 +1808,7 @@
 	ViewerFileLoadSelector.ViewerFileLoader = function() {
 	};
 
-	ClassUtils.extends(ViewerFileLoadSelector.ViewerFileLoader, FileLoadSelector.FileLoader); 
+	JSUtils.extends(ViewerFileLoadSelector.ViewerFileLoader, FileLoadSelector.FileLoader); 
 
 
 	/**
@@ -2967,7 +1841,7 @@
 	var ViewerFileLoad_1_0_0 = function() {
 	};
 
-	ClassUtils.extends(ViewerFileLoad_1_0_0, ViewerFileLoadSelector.ViewerFileLoader);
+	JSUtils.extends(ViewerFileLoad_1_0_0, ViewerFileLoadSelector.ViewerFileLoader);
 
 	/**
 	 * Loads an entire viewer file, and returns the result. For
@@ -3173,7 +2047,7 @@
 	module.exports = ViewerFileLoadSelector;
 
 /***/ },
-/* 11 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3191,11 +2065,11 @@
 	 *   
 	 */
 
-	var Version = __webpack_require__(9);
-	var FileLoadSelector = __webpack_require__(20);
-	var ClassUtils = __webpack_require__(22);
-	var TimedBeats = __webpack_require__(26);
-	var InvalidFileTypeError = __webpack_require__(21);
+	var Version = __webpack_require__(17);
+	var FileLoadSelector = __webpack_require__(22);
+	var JSUtils = __webpack_require__(4);
+	var TimedBeats = __webpack_require__(33);
+	var InvalidFileTypeError = __webpack_require__(23);
 	 
 	/**
 	 * Every version of the Beats File needs to be loaded in a different way -
@@ -3206,7 +2080,7 @@
 	    FileLoadSelector.apply(this, []);
 	};
 
-	ClassUtils.extends(BeatsFileLoadSelector, FileLoadSelector);
+	JSUtils.extends(BeatsFileLoadSelector, FileLoadSelector);
 
 	/**
 	 * The BeatsFileLoadSelector is a singleton, and this is its
@@ -3245,7 +2119,7 @@
 	BeatsFileLoadSelector.BeatsFileLoader = function() {
 	};
 
-	ClassUtils.extends(BeatsFileLoadSelector.BeatsFileLoader, FileLoadSelector.FileLoader); 
+	JSUtils.extends(BeatsFileLoadSelector.BeatsFileLoader, FileLoadSelector.FileLoader); 
 
 
 	/**
@@ -3267,7 +2141,7 @@
 	var BeatsFileLoad_1_0_0 = function() {
 	};
 
-	ClassUtils.extends(BeatsFileLoad_1_0_0, BeatsFileLoadSelector.BeatsFileLoader);
+	JSUtils.extends(BeatsFileLoad_1_0_0, BeatsFileLoadSelector.BeatsFileLoader);
 
 	/**
 	 * Loads an entire beats file, and returns the result. For
@@ -3306,642 +2180,8 @@
 	module.exports = BeatsFileLoadSelector;
 
 /***/ },
-/* 12 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandEven class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	 
-	/**
-	 * A MovementCommand that defines an even-step transition between
-	 * two points.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The angle toward which the marcher is facing while
-	 *   executing the movement. The angle is measured in degrees relative to
-	 *   Grapher standard position. (@see MathUtils.js for definition of
-	 *   "Grapher standard position")
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The number of beats per each step.
-	 */
-	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
-	    this._orientation = orientation;
-	    this._beatsPerStep = beatsPerStep;
-	    var numSteps = Math.floor(beats / this._beatsPerStep);
-	    this._deltaXPerStep = (endX - startX) / numSteps;
-	    this._deltaYPerStep = (endY - startY) / numSteps;
-
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandEven, MovementCommand);
-
-	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
-	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
-	};
-
-	/**
-	 * Returns the number of beats in this movement
-	 * @return {int}
-	 */
-	MovementCommandEven.prototype.getBeatsPerStep = function() {
-	    return this._beatsPerStep;
-	}
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form "Even 8 E, 4 S" or "Move 8 E" if
-	 * in one direction
-	 */
-	MovementCommandEven.prototype.getContinuityText = function() {
-	    var deltaX = this._endX - this._startX;
-	    var deltaY = this._endY - this._startY;
-	    var dirX = (deltaX < 0) ? "S" : "N";
-	    var dirY = (deltaY < 0) ? "W" : "E";
-	    var steps = this._numBeats / this._beatsPerStep;
-	    deltaX = Math.abs(deltaX);
-	    deltaY = Math.abs(deltaY);
-
-	    // Check if movement only in one direction and same number of steps as change in position
-	    if (deltaX == 0 && deltaY == steps) {
-	        return "Move " + steps + " " + dirY;
-	    } else if (deltaY == 0 && deltaX == steps) {
-	        return "Move " + steps + " " + dirX;
-	    } else if (deltaY == deltaX && deltaX == steps) { // Diagonal
-	        return "Move " + steps + " " + dirX + dirY;
-	    }
-
-	    var text = "Even ";
-	    // If movement is a fraction of steps, simply say "NE" or "S"
-	    if (deltaX % 1 != 0 || deltaY % 1 != 0) {
-	        text += (deltaX != 0) ? dirX : "";
-	        text += (deltaY != 0) ? dirY : "";
-	    } else {
-	        // End result will be concat. of directions, e.g. "Even 8E, 4S"
-	        var moveTexts = [];
-	        if (deltaY != 0) {
-	            moveTexts.push(Math.abs(deltaY) + " " + dirY);
-	        }
-	        if (deltaX != 0) {
-	            moveTexts.push(Math.abs(deltaX) + " " + dirX);
-	        }
-	        text += moveTexts.join(", ");
-	    }
-	    // Error checking for an even move without movement in any direction
-	    if (text === "Even ") {
-	        text += "0";
-	    }
-	    return text + " (" + steps + " steps)";
-	};
-
-	module.exports = MovementCommandEven;
-
-/***/ },
-/* 13 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMove class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MathUtils = __webpack_require__(18);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand which represents a constant movement in a
-	 * particular direction.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} stepSize the size of each step, relative to standard
-	 *   stepsize (standard stepsize is 8 steps per 5 yards).
-	 * @param {float} movementDirection The direction toward which the marcher
-	 *   will move. This is measured in degrees relative to Grapher standard
-	 *   position (@see MathUtils.js for a definition of "Grapher standard
-	 *   position").
-	 * @param {float} faceOrientation the direction toward which the marcher
-	 *   will face while executing the movement. This is measured in degrees,
-	 *   relative to Grapher standard position.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep the number of beats per each step of the movement.
-	 */ 
-	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
-	    movementDirection = MathUtils.toRadians(movementDirection);
-	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
-	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
-	    this._orientation = faceOrientation;
-	    this._beatsPerStep = beatsPerStep;
-	    numSteps = Math.floor(beats / this._beatsPerStep);
-	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMove, MovementCommand);
-
-	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
-	    numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
-	};
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form "Move 4 E"
-	 */
-	MovementCommandMove.prototype.getContinuityText = function() {
-	    var deltaX = this._endX - this._startX;
-	    var deltaY = this._endY - this._startY;
-	    var dirX = (deltaX < 0) ? "S" : "N";
-	    var dirY = (deltaY < 0) ? "W" : "E";
-	    // This movement can only move in one direction
-	    if (deltaX == 0) {
-	        return "Move " + Math.abs(deltaY) + " " + dirY;
-	    } else {
-	        return "Move " + Math.abs(deltaX) + " " + dirX;
-	    }
-	};
-
-	module.exports = MovementCommandMove;
-
-/***/ },
-/* 14 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandStand class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand representing a period of standing.
-	 * @param {float} x The x coordinate to stand at.
-	 * @param {float} y The y coordinate to stand at.
-	 * @param {float} orientation The angle at which the marcher will
-	 *   face while standing. This is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for a definition
-	 *   of "grapher standard position).
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandStand = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandStand, MovementCommand);
-
-	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form of "Close 16E"
-	 */
-	MovementCommandStand.prototype.getContinuityText = function() {
-	    return "Close " + this._numBeats + this.getOrientation();
-	};
-
-	module.exports = MovementCommandStand;
-
-/***/ },
-/* 15 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandGoto class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommand that represents a "Goto" movement:
-	 * dots executing this movement simply jump to the movement's final
-	 * position and orientation at every beat of the movement.
-	 *
-	 * @param {float} startX The x component of the movement's start position.
-	 * @param {float} startY The y component of the movement's start position.
-	 * @param {float} endX The x component of the movement's end position.
-	 * @param {float} endY The y component of the movement's end position.
-	 * @param {float} orientation The direction in which the marcher will face
-	 *   while executing the movement. The direction is measured in degrees relative
-	 *   to Grapher standard position (@see MathUtils.js for the definition of
-	 *   "Grapher standard position").
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandGoto, MovementCommand);
-
-	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._endX, this._endY, this._orientation);
-	};
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form of "See Continuity (16 beats)"
-	 */
-	MovementCommandGoto.prototype.getContinuityText = function() {
-	    return "See Continuity (" + this._numBeats + " beats)";
-	};
-
-	module.exports = MovementCommandGoto;
-
-/***/ },
-/* 16 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandMarkTime class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-
-	/**
-	 * A MovementCommand that represents a period of mark time.
-	 *
-	 * @param {float} x The x position where the mark time takes place.
-	 * @param {float} y The y position where the mark time takes place.
-	 * @param {float} orientation The direction toward which the marcher
-	 *   faces while marking time. This is measured in degrees,
-	 *   relative to Grapher standard position (@see MathUtils.js
-	 *   for a definition of "Grapher standard position").
-	 * @param {int} beats The duration of the movement, in beats.
-	 */
-	var MovementCommandMarkTime = function(x, y, orientation, beats) {
-	    this._orientation = orientation;
-	    MovementCommand.apply(this, [x, y, x, y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandMarkTime, MovementCommand);
-
-	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
-	    return new AnimationState(this._startX, this._startY, this._orientation);
-	};
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form "MT 16 E"
-	 */
-	MovementCommandMarkTime.prototype.getContinuityText = function() {
-	    return (this._numBeats == 0) ? "" : "MT " + this._numBeats + " " + this.getOrientation();
-	};
-
-	module.exports = MovementCommandMarkTime;
-
-/***/ },
-/* 17 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommandArc class.
-	 */
-
-	var ClassUtils = __webpack_require__(22);
-	var MathUtils = __webpack_require__(18);
-	var MovementCommand = __webpack_require__(27);
-	var AnimationState = __webpack_require__(28);
-	 
-	/**
-	 * A MovementCommandArc object represents a movement along the
-	 * perimeter of a circular arc.
-	 *
-	 * @param {float} startX The x coordinate of the movement's start position.
-	 * @param {float} startY The y coordinate of the movement's start position.
-	 * @param {float} centerX The x coordinate of the arc center.
-	 * @param {float} centerY The y coordinate of the arc center.
-	 * @param {float angleTorotate The amount to rotate about the center, in
-	 *   degrees. Positive values indicate a rotation in the clockwise
-	 *   direction, negative values indicate a rotation in the
-	 *   counterclockwise direction.
-	 * @param {float} facingOffset The difference between the direction
-	 *   in which a marcher is travelling and the direction in
-	 *   which a marcher is facing. This angle is measured in degrees,
-	 *   where positive angles indicate a clockwise offset, and
-	 *   negative angles indicate a counterclockwise one.
-	 * @param {int} beats The duration of the movement, in beats.
-	 * @param {int} beatsPerStep The duration of each step, in beats.
-	 */
-	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
-	    this._beatsPerStep = beatsPerStep;
-	    this._centerX = centerX;
-	    this._centerY = centerY;
-	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
-	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
-	    if (isNaN(this._startAngle)) {
-	        this._startAngle = 0;
-	    }
-	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
-	    this._movementIsCW = this._stepAngleDelta >= 0;
-	    this._orientationOffset = MathUtils.toRadians(facingOffset);
-	    var finalAnimState = this.getAnimationState(beats);
-	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
-	};
-
-	ClassUtils.extends(MovementCommandArc, MovementCommand);
-
-	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
-	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
-	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
-	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
-	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
-	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
-	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
-	};
-
-	/**
-	 * Returns a list of (deltaX, deltaY) pairs that lie along the arc
-	 *
-	 * @return {Array<Array<int>>} an array of (deltaX, deltaY) pairs
-	 */
-	MovementCommandArc.prototype.getMiddlePoints = function() {
-	    var totalAngle = this._startAngle;
-	    var prevX = this._startX;
-	    var prevY = this._startY;
-	    var points = [];
-	    for (var i = 0; i < this._numBeats / this._beatsPerStep; i++) {
-	        totalAngle += this._stepAngleDelta;
-	        var x = this._radius * MathUtils.calcRotatedXPos(totalAngle) + this._centerX;
-	        var y = this._radius * MathUtils.calcRotatedYPos(totalAngle) + this._centerY;
-	        points.push([x - prevX, y - prevY]);
-	        prevX = x;
-	        prevY = y;
-	    }
-	    return points;
-	};
-
-	/**
-	 * Returns the continuity text for this movement
-	 * @return {String} the continuity text in the form of "GT CW 90 deg. (16 steps)"
-	 */
-	MovementCommandArc.prototype.getContinuityText = function() {
-	    var steps = this._numBeats / this._beatsPerStep;
-	    var orientation = (this._movementIsCW) ? "CW" : "CCW";
-	    var angle = Math.abs(Math.floor(MathUtils.toDegrees(this._numBeats * this._stepAngleDelta)));
-	    return "GT " + orientation + " " + angle + " deg. (" + steps + " steps)";
-	};
-
-	module.exports = MovementCommandArc;
-
-/***/ },
-/* 18 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines various functions and constants that are
-	 *   useful in mathematical calculations.
-	 *
-	 * NOTES ABOUT THE COORDINATE SYSTEM USED:
-	 * Unless otherwise specified, all coordinates are expected to be
-	 * measured according to the coordinate system used by the Grapher.
-	 * That is, the positive y-axis points downward, and the positive
-	 * x-axis points rightward.
-	 
-	 * NOTES ABOUT ANGLE MEASUREMENT:
-	 * Unless otherwise specified, angles are measured in the same way
-	 * as they are measured for the Grapher: clockwise from the positive
-	 * y-axis. Thoughout this file, this angle measurement scheme will be
-	 * referred to as being relative to "Grapher standard position." Note
-	 * that this position derives from the fact that facing east, in the context of
-	 * memorial stadium, is the default: 0 degrees in the Grapher standard position
-	 * is straight east, and 90 degrees is south, etc.
-	 */
-
-	 
-	/**
-	 * The collection of all of the utility functions and constants defined in this
-	 * file.
-	 * @type {object}
-	 */
-	MathUtils = {};
-
-	 
-	//=============================================
-	//===============-- CONSTANTS
-	//=============================================
-	 
-	/**
-	 * PI/2
-	 * @type {float}
-	 */
-	MathUtils.PI_OVER_TWO = Math.PI / 2;
-
-	/**
-	 * 2*PI
-	 * @type {float}
-	 */
-	MathUtils.TWO_PI = Math.PI * 2;
-
-	/**
-	 * When multiplied by an angle measured in degrees,
-	 * this will produce an equivalent angle measured
-	 * in radians.
-	 * @type {float}
-	 */
-	MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR = Math.PI/180;
-
-	/**
-	 * When multiplied by an angle measured in radians,
-	 * this will produce an equivalent angle measured
-	 * in degrees.
-	 * @type {float}
-	 */
-	MathUtils.RADIANS_TO_DEGREES_CONV_FACTOR = 1 / MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR;
-
-	//=============================================
-	//===============-- FUNCTIONS
-	//=============================================
-
-	/**
-	 * Calculates the squared distance between two points.
-	 *
-	 * @param {float} fromX The x coordinate of the first point.
-	 * @param {float} fromY The y coordinate of the first point.
-	 * @param {float} toX The x coordinate of the second point.
-	 * @param {float} toY The y coordinate of the second point.
-	 * @return {float} The squared distance between points:
-	 *   {fromX, fromY} and  {toX, toY}.
-	 */
-	MathUtils.calcSquaredDistance = function(fromX, fromY, toX, toY) {
-	    var deltaX = toX - fromX;
-	    var deltaY = toY - fromY;
-	    return (deltaX * deltaX) + (deltaY * deltaY);
-	};
-
-	/**
-	 * Calculates the distance between two points.
-	 *
-	 * @param {float} fromX The x coordinate of the first point.
-	 * @param {float} fromY The y coordinate of the first point.
-	 * @param {float} toX The x coordinate of the second point.
-	 * @param {float} toY The y coordinate of the second point.
-	 * @return {float} The distance between points:
-	 *   {fromX, fromY} and  {toX, toY}.
-	 */
-	MathUtils.calcDistance = function(fromX, fromY, toX, toY) {
-	    return Math.sqrt(this.calcSquaredDistance(fromX, fromY, toX, toY));
-	};
-
-	/**
-	 * Calculates the angle toward which a vector is facing, in radians.
-	 * The angle is measured relative to Grapher standard position.
-	 *
-	 * @param {float} vectorX The x component of the vector.
-	 * @param {float} vectorY The y component of the vector.
-	 * @return {float} The angle toward which the vector is pointing, in
-	 * radians.
-	 */
-	MathUtils.calcAngle = function(vectorX, vectorY) {
-	    var angle = Math.atan(-vectorX / vectorY);
-	    if (vectorY < 0) {
-	        angle += Math.PI;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * Returns the angle to which a point has been rotated
-	 * around a center.
-	 *
-	 * @param {float} pointX The x coordinate of the rotated point.
-	 * @param {float} pointY The y coordinate of the rotated point.
-	 * @param {float} centerX The x coordinate of the center.
-	 * @param {float} centerY The y coordinate of the center.
-	 * @return {float} The angle to which a point has been rotated
-	 *   around a center. The angle is measured in radians,
-	 *   relative to Grapher standard position.
-	 */
-	MathUtils.calcAngleAbout = function(pointX, pointY, centerX, centerY) {
-	    return this.calcAngle(pointX - centerX, pointY - centerY);
-	};
-
-	/**
-	 * Calculates the x position of a point rotated along the unit
-	 * circle by an angle measured relative to Grapher standard
-	 * position.
-	 *
-	 * @param {float} angle The angle by which to rotate the point,
-	 *   measured in radians relative to Grapher standard position.
-	 * @return {float} The final x position of the point, rotated along the
-	 *   unit circle.
-	 */
-	MathUtils.calcRotatedXPos = function(angle) {
-	    return -Math.sin(angle);
-	};
-
-	/**
-	 * Calculates the y position of a point rotated along the unit
-	 * circle by an angle measured relative to Grapher standard
-	 * position.
-	 *
-	 * @param {float} angle The angle by which to rotate the point,
-	 *   measured in radians relative to Grapher standard position.
-	 * @return {float} The final y position of the point, rotated along the
-	 *   unit circle.
-	 */
-	MathUtils.calcRotatedYPos = function(angle) {
-	    return Math.cos(angle);
-	};
-
-	/**
-	 * Rotates an angle by a quarter-turn in
-	 * a specified direction.
-	 *
-	 * @param {float} angle The angle to rotate, in radians.
-	 * @param {bool} isCW True if the angle should be
-	 *   rotated clockwise; false if the angle should 
-	 *   be rotated counter-clockwise.
-	 * @return The angle, rotated by a quarter turn.
-	 *   This angle is measured in radians.
-	 */
-	MathUtils.quarterTurn = function(angle, isCW) {
-	    return angle + ((isCW * 2 - 1) * this.PI_OVER_TWO);
-	};
-
-	/**
-	 * For an angle measured in degrees, will
-	 * find an equivalent angle between 0
-	 * and 360 degrees.
-	 *
-	 * @param {float} angle An angle measured in degrees.
-	 * @return {float} An equivalent angle between 0 and
-	 *   360 degrees.
-	 */
-	MathUtils.wrapAngleDegrees = function(angle) {
-	    while (angle >= 360) {
-	        angle -= 360;
-	    }
-	    while (angle < 0) {
-	        angle += 360;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * For an angle measured in radians, will
-	 * find an equivalent angle between 0
-	 * and 2*PI radians.
-	 *
-	 * @param {float} angle An angle measured in radians.
-	 * @return {float} An equivalent angle between
-	 *   0 and 2*PI radians.
-	 */
-	MathUtils.wrapAngleRadians = function(angle) {
-	    while (angle >= TWO_PI) {
-	        angle -= this.TWO_PI;
-	    }
-	    while (angle < 0) {
-	        angle += this.TWO_PI;
-	    }
-	    return angle;
-	};
-
-	/**
-	 * Converts an angle measured in degrees to one
-	 * measured in radians.
-	 *
-	 * @param {float} angle An angle, measured in degrees.
-	 * @return {float} The angle, measured in radians.
-	 */
-	MathUtils.toRadians = function(angle) {
-	    return angle * this.DEGREES_TO_RADIANS_CONV_FACTOR;
-	};
-
-	/**
-	 * Converts an angle measured in radians to one
-	 * measured in degrees.
-	 *
-	 * @param {float} angle An angle, measured in radians.
-	 * @return {float} The angle, measured in degrees.
-	 */
-	MathUtils.toDegrees = function(angle) {
-	    return angle * this.RADIANS_TO_DEGREES_CONV_FACTOR;
-	};
-
-	module.exports = MathUtils;
-
-
-/***/ },
-/* 19 */
+/* 20 */,
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3949,9 +2189,9 @@
 	 *   type that uses SoundManager2 to play audio.
 	 */
 
-	var ClassUtils = __webpack_require__(22);
-	var SMSound = __webpack_require__(29);
-	var MusicPlayer = __webpack_require__(30);
+	var JSUtils = __webpack_require__(4);
+	var SMSound = __webpack_require__(34);
+	var MusicPlayer = __webpack_require__(35);
 	 
 	/**
 	 * A MusicPlayer that uses SoundManager2.
@@ -3975,7 +2215,7 @@
 	    });
 	};
 
-	ClassUtils.extends(SMMusicPlayer, MusicPlayer);
+	JSUtils.extends(SMMusicPlayer, MusicPlayer);
 
 
 	SMMusicPlayer.prototype.createSound = function(musicURL) {
@@ -4016,7 +2256,7 @@
 	module.exports = SMMusicPlayer;
 
 /***/ },
-/* 20 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4056,8 +2296,8 @@
 	 *         calling loadSelector.registerLoader(...)
 	 */
 
-	var ArrayUtils = __webpack_require__(31);
-	var Version = __webpack_require__(9);
+	var ArrayUtils = __webpack_require__(36);
+	var Version = __webpack_require__(17);
 	 
 	/**
 	 * Every version of a file needs to be loaded in a different way -
@@ -4135,7 +2375,7 @@
 	module.exports = FileLoadSelector;
 
 /***/ },
-/* 21 */
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4152,36 +2392,7 @@
 	module.exports = InvalidFileTypeError;
 
 /***/ },
-/* 22 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines various utility functions that are related to
-	 *   defining classes and their properties.
-	 */
-
-	/**
-	 * A collection of class-related utility functions.
-	 */
-	var ClassUtils = {};
-	 
-	/**
-	 * Causes a child class to inherit from a parent class.
-	 *
-	 * @param {function} ChildClass The class that will inherit
-	 *   from another.
-	 * @param {function} ParentClass The class to inherit from.
-	 */
-	ClassUtils.extends = function (ChildClass, ParentClass) {
-	    var Inheritor = function () {}; // dummy constructor
-	    Inheritor.prototype = ParentClass.prototype;
-	    ChildClass.prototype = new Inheritor();
-	};
-
-	module.exports = ClassUtils;
-
-/***/ },
-/* 23 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4220,7 +2431,7 @@
 	/**
 	 * Returns this dot's movement commands.
 	 *
-	 * @return {string} The dot's movements.
+	 * @return {Array<MovementCommand>} The dot's movements.
 	 */
 	Dot.prototype.getMovementCommands = function() {
 	    return this._movements;
@@ -4249,7 +2460,7 @@
 	module.exports = Dot;
 
 /***/ },
-/* 24 */
+/* 25 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4380,7 +2591,7 @@
 	module.exports = Sheet;
 
 /***/ },
-/* 25 */
+/* 26 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4496,7 +2707,404 @@
 	module.exports = Show;
 
 /***/ },
-/* 26 */
+/* 27 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandStand class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+	 
+	/**
+	 * A MovementCommand representing a period of standing.
+	 * @param {float} x The x coordinate to stand at.
+	 * @param {float} y The y coordinate to stand at.
+	 * @param {float} orientation The angle at which the marcher will
+	 *   face while standing. This is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for a definition
+	 *   of "grapher standard position).
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandStand = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	JSUtils.extends(MovementCommandStand, MovementCommand);
+
+	MovementCommandStand.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form of "Close 16E"
+	 */
+	MovementCommandStand.prototype.getContinuityText = function() {
+	    return "Close " + this._numBeats + this.getOrientation();
+	};
+
+	module.exports = MovementCommandStand;
+
+/***/ },
+/* 28 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMarkTime class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+
+	/**
+	 * A MovementCommand that represents a period of mark time.
+	 *
+	 * @param {float} x The x position where the mark time takes place.
+	 * @param {float} y The y position where the mark time takes place.
+	 * @param {float} orientation The direction toward which the marcher
+	 *   faces while marking time. This is measured in degrees,
+	 *   relative to Grapher standard position (@see MathUtils.js
+	 *   for a definition of "Grapher standard position").
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandMarkTime = function(x, y, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [x, y, x, y, beats]);
+	};
+
+	JSUtils.extends(MovementCommandMarkTime, MovementCommand);
+
+	MovementCommandMarkTime.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._startX, this._startY, this._orientation);
+	};
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form "MT 16 E"
+	 */
+	MovementCommandMarkTime.prototype.getContinuityText = function() {
+	    return (this._numBeats == 0) ? "" : "MT " + this._numBeats + " " + this.getOrientation();
+	};
+
+	module.exports = MovementCommandMarkTime;
+
+/***/ },
+/* 29 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandArc class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MathUtils = __webpack_require__(39);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+	 
+	/**
+	 * A MovementCommandArc object represents a movement along the
+	 * perimeter of a circular arc.
+	 *
+	 * @param {float} startX The x coordinate of the movement's start position.
+	 * @param {float} startY The y coordinate of the movement's start position.
+	 * @param {float} centerX The x coordinate of the arc center.
+	 * @param {float} centerY The y coordinate of the arc center.
+	 * @param {float angleTorotate The amount to rotate about the center, in
+	 *   degrees. Positive values indicate a rotation in the clockwise
+	 *   direction, negative values indicate a rotation in the
+	 *   counterclockwise direction.
+	 * @param {float} facingOffset The difference between the direction
+	 *   in which a marcher is travelling and the direction in
+	 *   which a marcher is facing. This angle is measured in degrees,
+	 *   where positive angles indicate a clockwise offset, and
+	 *   negative angles indicate a counterclockwise one.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The duration of each step, in beats.
+	 */
+	var MovementCommandArc = function(startX, startY, centerX, centerY, angleToRotate, facingOffset, beats, beatsPerStep) {
+	    this._beatsPerStep = beatsPerStep;
+	    this._centerX = centerX;
+	    this._centerY = centerY;
+	    this._radius = MathUtils.calcDistance(startX, startY, this._centerX, this._centerY);
+	    this._startAngle = MathUtils.calcAngleAbout(startX, startY, centerX, centerY);
+	    if (isNaN(this._startAngle)) {
+	        this._startAngle = 0;
+	    }
+	    this._stepAngleDelta = MathUtils.toRadians(angleToRotate) / Math.floor(beats / this._beatsPerStep);
+	    this._movementIsCW = this._stepAngleDelta >= 0;
+	    this._orientationOffset = MathUtils.toRadians(facingOffset);
+	    var finalAnimState = this.getAnimationState(beats);
+	    MovementCommand.apply(this, [startX, startY, finalAnimState.x, finalAnimState.y, beats]);
+	};
+
+	JSUtils.extends(MovementCommandArc, MovementCommand);
+
+	MovementCommandArc.prototype.getAnimationState = function(beatNum) {
+	    var numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    var finalAngle = this._startAngle + (this._stepAngleDelta * numSteps);
+	    var finalX = this._radius * MathUtils.calcRotatedXPos(finalAngle) + this._centerX;
+	    var finalY = this._radius * MathUtils.calcRotatedYPos(finalAngle) + this._centerY;
+	    var finalOrientation = MathUtils.quarterTurn(finalAngle, this._movementIsCW) + this._orientationOffset;
+	    return new AnimationState(finalX, finalY, MathUtils.toDegrees(finalOrientation));
+	};
+
+	/**
+	 * Returns a list of (deltaX, deltaY) pairs that lie along the arc
+	 *
+	 * @return {Array<Array<int>>} an array of (deltaX, deltaY) pairs
+	 */
+	MovementCommandArc.prototype.getMiddlePoints = function() {
+	    var totalAngle = this._startAngle;
+	    var prevX = this._startX;
+	    var prevY = this._startY;
+	    var points = [];
+	    for (var i = 0; i < this._numBeats / this._beatsPerStep; i++) {
+	        totalAngle += this._stepAngleDelta;
+	        var x = this._radius * MathUtils.calcRotatedXPos(totalAngle) + this._centerX;
+	        var y = this._radius * MathUtils.calcRotatedYPos(totalAngle) + this._centerY;
+	        points.push([x - prevX, y - prevY]);
+	        prevX = x;
+	        prevY = y;
+	    }
+	    return points;
+	};
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form of "GT CW 90 deg. (16 steps)"
+	 */
+	MovementCommandArc.prototype.getContinuityText = function() {
+	    var steps = this._numBeats / this._beatsPerStep;
+	    var orientation = (this._movementIsCW) ? "CW" : "CCW";
+	    var angle = Math.abs(Math.floor(MathUtils.toDegrees(this._numBeats * this._stepAngleDelta)));
+	    return "GT " + orientation + " " + angle + " deg. (" + steps + " steps)";
+	};
+
+	module.exports = MovementCommandArc;
+
+/***/ },
+/* 30 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandMove class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MathUtils = __webpack_require__(39);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+	 
+	/**
+	 * A MovementCommand which represents a constant movement in a
+	 * particular direction.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} stepSize the size of each step, relative to standard
+	 *   stepsize (standard stepsize is 8 steps per 5 yards).
+	 * @param {float} movementDirection The direction toward which the marcher
+	 *   will move. This is measured in degrees relative to Grapher standard
+	 *   position (@see MathUtils.js for a definition of "Grapher standard
+	 *   position").
+	 * @param {float} faceOrientation the direction toward which the marcher
+	 *   will face while executing the movement. This is measured in degrees,
+	 *   relative to Grapher standard position.
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep the number of beats per each step of the movement.
+	 */ 
+	var MovementCommandMove = function(startX, startY, stepSize, movementDirection, faceOrientation, beats, beatsPerStep) {
+	    movementDirection = MathUtils.toRadians(movementDirection);
+	    this._deltaXPerStep = MathUtils.calcRotatedXPos(movementDirection) * stepSize;
+	    this._deltaYPerStep = MathUtils.calcRotatedYPos(movementDirection) * stepSize;
+	    this._orientation = faceOrientation;
+	    this._beatsPerStep = beatsPerStep;
+	    numSteps = Math.floor(beats / this._beatsPerStep);
+	    MovementCommand.apply(this, [startX, startY, startX + (this._deltaXPerStep * numSteps), startY + (this._deltaYPerStep * numSteps), beats]);
+	};
+
+	JSUtils.extends(MovementCommandMove, MovementCommand);
+
+	MovementCommandMove.prototype.getAnimationState = function(beatNum) {
+	    numSteps = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * numSteps), this._startY + (this._deltaYPerStep * numSteps), this._orientation);
+	};
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form "Move 4 E"
+	 */
+	MovementCommandMove.prototype.getContinuityText = function() {
+	    var deltaX = this._endX - this._startX;
+	    var deltaY = this._endY - this._startY;
+	    var dirX = (deltaX < 0) ? "S" : "N";
+	    var dirY = (deltaY < 0) ? "W" : "E";
+	    // This movement can only move in one direction
+	    if (deltaX == 0) {
+	        return "Move " + Math.abs(deltaY) + " " + dirY;
+	    } else {
+	        return "Move " + Math.abs(deltaX) + " " + dirX;
+	    }
+	};
+
+	module.exports = MovementCommandMove;
+
+/***/ },
+/* 31 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandGoto class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+	 
+	/**
+	 * A MovementCommand that represents a "Goto" movement:
+	 * dots executing this movement simply jump to the movement's final
+	 * position and orientation at every beat of the movement.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The direction in which the marcher will face
+	 *   while executing the movement. The direction is measured in degrees relative
+	 *   to Grapher standard position (@see MathUtils.js for the definition of
+	 *   "Grapher standard position").
+	 * @param {int} beats The duration of the movement, in beats.
+	 */
+	var MovementCommandGoto = function(startX, startY, endX, endY, orientation, beats) {
+	    this._orientation = orientation;
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	JSUtils.extends(MovementCommandGoto, MovementCommand);
+
+	MovementCommandGoto.prototype.getAnimationState = function(beatNum) {
+	    return new AnimationState(this._endX, this._endY, this._orientation);
+	};
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form of "See Continuity (16 beats)"
+	 */
+	MovementCommandGoto.prototype.getContinuityText = function() {
+	    return "See Continuity (" + this._numBeats + " beats)";
+	};
+
+	module.exports = MovementCommandGoto;
+
+/***/ },
+/* 32 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the MovementCommandEven class.
+	 */
+
+	var JSUtils = __webpack_require__(4);
+	var MovementCommand = __webpack_require__(37);
+	var AnimationState = __webpack_require__(38);
+	 
+	 
+	/**
+	 * A MovementCommand that defines an even-step transition between
+	 * two points.
+	 *
+	 * @param {float} startX The x component of the movement's start position.
+	 * @param {float} startY The y component of the movement's start position.
+	 * @param {float} endX The x component of the movement's end position.
+	 * @param {float} endY The y component of the movement's end position.
+	 * @param {float} orientation The angle toward which the marcher is facing while
+	 *   executing the movement. The angle is measured in degrees relative to
+	 *   Grapher standard position. (@see MathUtils.js for definition of
+	 *   "Grapher standard position")
+	 * @param {int} beats The duration of the movement, in beats.
+	 * @param {int} beatsPerStep The number of beats per each step.
+	 */
+	var MovementCommandEven = function(startX, startY, endX, endY, orientation, beats, beatsPerStep) {
+	    this._orientation = orientation;
+	    this._beatsPerStep = beatsPerStep;
+	    var numSteps = Math.floor(beats / this._beatsPerStep);
+	    this._deltaXPerStep = (endX - startX) / numSteps;
+	    this._deltaYPerStep = (endY - startY) / numSteps;
+
+	    MovementCommand.apply(this, [startX, startY, endX, endY, beats]);
+	};
+
+	JSUtils.extends(MovementCommandEven, MovementCommand);
+
+	MovementCommandEven.prototype.getAnimationState = function(beatNum) {
+	    var stepNum = Math.floor(beatNum / this._beatsPerStep);
+	    return new AnimationState(this._startX + (this._deltaXPerStep * stepNum), this._startY + (this._deltaYPerStep * stepNum), this._orientation);
+	};
+
+	/**
+	 * Returns the number of beats in this movement
+	 * @return {int}
+	 */
+	MovementCommandEven.prototype.getBeatsPerStep = function() {
+	    return this._beatsPerStep;
+	}
+
+	/**
+	 * Returns the continuity text for this movement
+	 * @return {String} the continuity text in the form "Even 8 E, 4 S" or "Move 8 E" if
+	 * in one direction
+	 */
+	MovementCommandEven.prototype.getContinuityText = function() {
+	    var deltaX = this._endX - this._startX;
+	    var deltaY = this._endY - this._startY;
+	    var dirX = (deltaX < 0) ? "S" : "N";
+	    var dirY = (deltaY < 0) ? "W" : "E";
+	    var steps = this._numBeats / this._beatsPerStep;
+	    deltaX = Math.abs(deltaX);
+	    deltaY = Math.abs(deltaY);
+
+	    // Check if movement only in one direction and same number of steps as change in position
+	    if (deltaX == 0 && deltaY == steps) {
+	        return "Move " + steps + " " + dirY;
+	    } else if (deltaY == 0 && deltaX == steps) {
+	        return "Move " + steps + " " + dirX;
+	    } else if (deltaY == deltaX && deltaX == steps) { // Diagonal
+	        return "Move " + steps + " " + dirX + dirY;
+	    }
+
+	    var text = "Even ";
+	    // If movement is a fraction of steps, simply say "NE" or "S"
+	    if (deltaX % 1 != 0 || deltaY % 1 != 0) {
+	        text += (deltaX != 0) ? dirX : "";
+	        text += (deltaY != 0) ? dirY : "";
+	    } else {
+	        // End result will be concat. of directions, e.g. "Even 8E, 4S"
+	        var moveTexts = [];
+	        if (deltaY != 0) {
+	            moveTexts.push(Math.abs(deltaY) + " " + dirY);
+	        }
+	        if (deltaX != 0) {
+	            moveTexts.push(Math.abs(deltaX) + " " + dirX);
+	        }
+	        text += moveTexts.join(", ");
+	    }
+	    // Error checking for an even move without movement in any direction
+	    if (text === "Even ") {
+	        text += "0";
+	    }
+	    return text + " (" + steps + " steps)";
+	};
+
+	module.exports = MovementCommandEven;
+
+/***/ },
+/* 33 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4506,7 +3114,7 @@
 	 *   beats in the music.
 	 */
 	 
-	 var ArrayUtils = __webpack_require__(31);
+	 var ArrayUtils = __webpack_require__(36);
 
 	/**
 	 * TimedBeats objects record a sequence of
@@ -4608,169 +3216,7 @@
 	module.exports = TimedBeats;
 
 /***/ },
-/* 27 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the MovementCommand class.
-	 */
-
-	var Coordinate = __webpack_require__(32);
-
-	/**
-	 * MovementCommand class
-	 *
-	 * Represents an individual movement that a marcher executes during
-	 * a show.
-	 * 
-	 * This is an abstract class - do not make an instance of this
-	 * directly.
-	 *
-	 * @param {float} startX The x coordinate at which the movement starts.
-	 * @param {float} startY The y coordinate at which the movement starts.
-	 * @param {float} endX The x coordinate at which the movement starts.
-	 * @param {float} endY The y coordinate at which the movement starts.
-	 * @param {int} numBeats The duration of the movement, in beats. 
-	 **/
-	var MovementCommand = function(startX, startY, endX, endY, numBeats) {
-	    /**
-	     * The x component of the movement's start position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._startX = startX;
-	    
-	    /**
-	     * The y component of the movement's start position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._startY = startY;
-	    
-	    /**
-	     * The x component of the movement's end position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._endX = endX;
-	    
-	    /**
-	     * The y component of the movement's end position, measured in
-	     * steps from the upper left corner of the field.
-	     * @type {float}
-	     */
-	    this._endY = endY;
-	    
-	    /**
-	     * The duration of the command, in beats.
-	     * @type {int}
-	     */
-	    this._numBeats = numBeats;
-	};
-
-	/**
-	 * Returns the position at which this movement starts.
-	 *
-	 * @return {Coordinate} The position where the movement begins.
-	 */
-	MovementCommand.prototype.getStartPosition = function() {
-	        return new Coordinate(this._startX, this._startY);
-	};
-
-	/**
-	 * Returns the position at which this movement ends.
-	 *
-	 * @return {Coordinate} The position where the movement ends.
-	 */
-	MovementCommand.prototype.getEndPosition = function() {
-	    return new Coordinate(this._endX, this._endY);
-	};
-
-	/**
-	 * Returns the number of beats required to complete this
-	 * command.
-	 *
-	 * @return {int} The duration of this command, in beats.
-	 */
-	MovementCommand.prototype.getBeatDuration = function() {
-	    return this._numBeats;
-	};
-
-	/**
-	 * Returns an AnimationState describing a marcher
-	 * who is executing this movement.
-	 *
-	 * @param {int} beatNum The beat of this movement that
-	 * the marcher is currently executing (relative
-	 * to the start of the movement).
-	 * @return {AnimationState} An AnimationState describing
-	 * a marcher who is executing this movement.
-	 */
-	MovementCommand.prototype.getAnimationState = function(beatNum) {
-	    console.log("getAnimationState called");
-	};
-
-	/**
-	 * Returns the continuity text associated with this movement
-	 * @return {String} the text displayed for this movement
-	 */
-	MovementCommand.prototype.getContinuityText = function() {
-	    console.log("getContinuityText called");
-	};
-
-	/**
-	 * Returns this movement's orientation (E,W,N,S). If the orientation isn't one of
-	 * 0, 90, 180, or 270, returns an empty String
-	 * @return {String} the orientation or an empty String if invalid orientation
-	 */
-	MovementCommand.prototype.getOrientation = function() {
-	    switch (this._orientation) {
-	        case 0:
-	            return "E";
-	            break;
-	        case 90:
-	            return "S";
-	            break;
-	        case 180:
-	            return "W";
-	            break;
-	        case 270:
-	            return "N";
-	            break;
-	        default:
-	            return "";
-	    }
-	};
-
-	module.exports = MovementCommand;
-
-/***/ },
-/* 28 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/**
-	 * @fileOverview Defines the AnimationState struct.
-	 */
-
-	/**
-	 * An AnimationState struct describes the state of a dot at a specific time
-	 * in the show. It contains all information required to properly draw
-	 * the dot in the grapher.
-	 *
-	 * @param {float} posX The x position of the dot.
-	 * @param {float} posY The y position of the dot.
-	 * @param {float} facingAngle The angle at which the dot is oriented.
-	 */
-	var AnimationState = function(posX, posY, facingAngle) {
-	    this.x = posX;
-	    this.y = posY;
-	    this.angle = facingAngle;
-	};
-
-	module.exports = AnimationState;
-
-/***/ },
-/* 29 */
+/* 34 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -4778,8 +3224,8 @@
 	 *   SoundManager2.
 	 */
 	 
-	var Sound = __webpack_require__(33);
-	var ClassUtils = __webpack_require__(22);
+	var Sound = __webpack_require__(40);
+	var JSUtils = __webpack_require__(4);
 	 
 	/**
 	 * SMSound objects play music through SoundManager2.
@@ -4808,7 +3254,7 @@
 	    }
 	};
 
-	ClassUtils.extends(SMSound, Sound);
+	JSUtils.extends(SMSound, Sound);
 
 	/**
 	 * A list of all events emitted by this class.
@@ -5068,7 +3514,7 @@
 	module.exports = SMSound;
 
 /***/ },
-/* 30 */
+/* 35 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -5129,7 +3575,7 @@
 	module.exports = MusicPlayer;
 
 /***/ },
-/* 31 */
+/* 36 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -5346,29 +3792,407 @@
 	module.exports = ArrayUtils;
 
 /***/ },
-/* 32 */
+/* 37 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
-	 * @fileOverview Defines the Coordinate struct.
+	 * @fileOverview Defines the MovementCommand class.
+	 */
+
+	var Coordinate = __webpack_require__(41);
+
+	/**
+	 * MovementCommand class
+	 *
+	 * Represents an individual movement that a marcher executes during
+	 * a show.
+	 * 
+	 * This is an abstract class - do not make an instance of this
+	 * directly.
+	 *
+	 * @param {float} startX The x coordinate at which the movement starts.
+	 * @param {float} startY The y coordinate at which the movement starts.
+	 * @param {float} endX The x coordinate at which the movement starts.
+	 * @param {float} endY The y coordinate at which the movement starts.
+	 * @param {int} numBeats The duration of the movement, in beats. 
+	 **/
+	var MovementCommand = function(startX, startY, endX, endY, numBeats) {
+	    /**
+	     * The x component of the movement's start position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._startX = startX;
+	    
+	    /**
+	     * The y component of the movement's start position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._startY = startY;
+	    
+	    /**
+	     * The x component of the movement's end position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._endX = endX;
+	    
+	    /**
+	     * The y component of the movement's end position, measured in
+	     * steps from the upper left corner of the field.
+	     * @type {float}
+	     */
+	    this._endY = endY;
+	    
+	    /**
+	     * The duration of the command, in beats.
+	     * @type {int}
+	     */
+	    this._numBeats = numBeats;
+	};
+
+	/**
+	 * Returns the position at which this movement starts.
+	 *
+	 * @return {Coordinate} The position where the movement begins.
+	 */
+	MovementCommand.prototype.getStartPosition = function() {
+	        return new Coordinate(this._startX, this._startY);
+	};
+
+	/**
+	 * Returns the position at which this movement ends.
+	 *
+	 * @return {Coordinate} The position where the movement ends.
+	 */
+	MovementCommand.prototype.getEndPosition = function() {
+	    return new Coordinate(this._endX, this._endY);
+	};
+
+	/**
+	 * Returns the number of beats required to complete this
+	 * command.
+	 *
+	 * @return {int} The duration of this command, in beats.
+	 */
+	MovementCommand.prototype.getBeatDuration = function() {
+	    return this._numBeats;
+	};
+
+	/**
+	 * Returns an AnimationState describing a marcher
+	 * who is executing this movement.
+	 *
+	 * @param {int} beatNum The beat of this movement that
+	 * the marcher is currently executing (relative
+	 * to the start of the movement).
+	 * @return {AnimationState} An AnimationState describing
+	 * a marcher who is executing this movement.
+	 */
+	MovementCommand.prototype.getAnimationState = function(beatNum) {
+	    console.log("getAnimationState called");
+	};
+
+	/**
+	 * Returns the continuity text associated with this movement
+	 * @return {String} the text displayed for this movement
+	 */
+	MovementCommand.prototype.getContinuityText = function() {
+	    console.log("getContinuityText called");
+	};
+
+	/**
+	 * Returns this movement's orientation (E,W,N,S). If the orientation isn't one of
+	 * 0, 90, 180, or 270, returns an empty String
+	 * @return {String} the orientation or an empty String if invalid orientation
+	 */
+	MovementCommand.prototype.getOrientation = function() {
+	    switch (this._orientation) {
+	        case 0:
+	            return "E";
+	            break;
+	        case 90:
+	            return "S";
+	            break;
+	        case 180:
+	            return "W";
+	            break;
+	        case 270:
+	            return "N";
+	            break;
+	        default:
+	            return "";
+	    }
+	};
+
+	module.exports = MovementCommand;
+
+/***/ },
+/* 38 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the AnimationState struct.
 	 */
 
 	/**
-	 * A Coordinate struct marks a two-dimensional position:
-	 * {x: __,y: __}.
+	 * An AnimationState struct describes the state of a dot at a specific time
+	 * in the show. It contains all information required to properly draw
+	 * the dot in the grapher.
 	 *
-	 * @param {float} x The x component of the coordinate.
-	 * @param {float} y The y component of the coordinate.
+	 * @param {float} posX The x position of the dot.
+	 * @param {float} posY The y position of the dot.
+	 * @param {float} facingAngle The angle at which the dot is oriented.
 	 */
-	var Coordinate = function(x, y) {
-	    this.x = x;
-	    this.y = y;
+	var AnimationState = function(posX, posY, facingAngle) {
+	    this.x = posX;
+	    this.y = posY;
+	    this.angle = facingAngle;
 	};
 
-	module.exports = Coordinate;
+	module.exports = AnimationState;
 
 /***/ },
-/* 33 */
+/* 39 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines various functions and constants that are
+	 *   useful in mathematical calculations.
+	 *
+	 * NOTES ABOUT THE COORDINATE SYSTEM USED:
+	 * Unless otherwise specified, all coordinates are expected to be
+	 * measured according to the coordinate system used by the Grapher.
+	 * That is, the positive y-axis points downward, and the positive
+	 * x-axis points rightward.
+	 
+	 * NOTES ABOUT ANGLE MEASUREMENT:
+	 * Unless otherwise specified, angles are measured in the same way
+	 * as they are measured for the Grapher: clockwise from the positive
+	 * y-axis. Thoughout this file, this angle measurement scheme will be
+	 * referred to as being relative to "Grapher standard position." Note
+	 * that this position derives from the fact that facing east, in the context of
+	 * memorial stadium, is the default: 0 degrees in the Grapher standard position
+	 * is straight east, and 90 degrees is south, etc.
+	 */
+
+	 
+	/**
+	 * The collection of all of the utility functions and constants defined in this
+	 * file.
+	 * @type {object}
+	 */
+	MathUtils = {};
+
+	 
+	//=============================================
+	//===============-- CONSTANTS
+	//=============================================
+	 
+	/**
+	 * PI/2
+	 * @type {float}
+	 */
+	MathUtils.PI_OVER_TWO = Math.PI / 2;
+
+	/**
+	 * 2*PI
+	 * @type {float}
+	 */
+	MathUtils.TWO_PI = Math.PI * 2;
+
+	/**
+	 * When multiplied by an angle measured in degrees,
+	 * this will produce an equivalent angle measured
+	 * in radians.
+	 * @type {float}
+	 */
+	MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR = Math.PI/180;
+
+	/**
+	 * When multiplied by an angle measured in radians,
+	 * this will produce an equivalent angle measured
+	 * in degrees.
+	 * @type {float}
+	 */
+	MathUtils.RADIANS_TO_DEGREES_CONV_FACTOR = 1 / MathUtils.DEGREES_TO_RADIANS_CONV_FACTOR;
+
+	//=============================================
+	//===============-- FUNCTIONS
+	//=============================================
+
+	/**
+	 * Calculates the squared distance between two points.
+	 *
+	 * @param {float} fromX The x coordinate of the first point.
+	 * @param {float} fromY The y coordinate of the first point.
+	 * @param {float} toX The x coordinate of the second point.
+	 * @param {float} toY The y coordinate of the second point.
+	 * @return {float} The squared distance between points:
+	 *   {fromX, fromY} and  {toX, toY}.
+	 */
+	MathUtils.calcSquaredDistance = function(fromX, fromY, toX, toY) {
+	    var deltaX = toX - fromX;
+	    var deltaY = toY - fromY;
+	    return (deltaX * deltaX) + (deltaY * deltaY);
+	};
+
+	/**
+	 * Calculates the distance between two points.
+	 *
+	 * @param {float} fromX The x coordinate of the first point.
+	 * @param {float} fromY The y coordinate of the first point.
+	 * @param {float} toX The x coordinate of the second point.
+	 * @param {float} toY The y coordinate of the second point.
+	 * @return {float} The distance between points:
+	 *   {fromX, fromY} and  {toX, toY}.
+	 */
+	MathUtils.calcDistance = function(fromX, fromY, toX, toY) {
+	    return Math.sqrt(this.calcSquaredDistance(fromX, fromY, toX, toY));
+	};
+
+	/**
+	 * Calculates the angle toward which a vector is facing, in radians.
+	 * The angle is measured relative to Grapher standard position.
+	 *
+	 * @param {float} vectorX The x component of the vector.
+	 * @param {float} vectorY The y component of the vector.
+	 * @return {float} The angle toward which the vector is pointing, in
+	 * radians.
+	 */
+	MathUtils.calcAngle = function(vectorX, vectorY) {
+	    var angle = Math.atan(-vectorX / vectorY);
+	    if (vectorY < 0) {
+	        angle += Math.PI;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * Returns the angle to which a point has been rotated
+	 * around a center.
+	 *
+	 * @param {float} pointX The x coordinate of the rotated point.
+	 * @param {float} pointY The y coordinate of the rotated point.
+	 * @param {float} centerX The x coordinate of the center.
+	 * @param {float} centerY The y coordinate of the center.
+	 * @return {float} The angle to which a point has been rotated
+	 *   around a center. The angle is measured in radians,
+	 *   relative to Grapher standard position.
+	 */
+	MathUtils.calcAngleAbout = function(pointX, pointY, centerX, centerY) {
+	    return this.calcAngle(pointX - centerX, pointY - centerY);
+	};
+
+	/**
+	 * Calculates the x position of a point rotated along the unit
+	 * circle by an angle measured relative to Grapher standard
+	 * position.
+	 *
+	 * @param {float} angle The angle by which to rotate the point,
+	 *   measured in radians relative to Grapher standard position.
+	 * @return {float} The final x position of the point, rotated along the
+	 *   unit circle.
+	 */
+	MathUtils.calcRotatedXPos = function(angle) {
+	    return -Math.sin(angle);
+	};
+
+	/**
+	 * Calculates the y position of a point rotated along the unit
+	 * circle by an angle measured relative to Grapher standard
+	 * position.
+	 *
+	 * @param {float} angle The angle by which to rotate the point,
+	 *   measured in radians relative to Grapher standard position.
+	 * @return {float} The final y position of the point, rotated along the
+	 *   unit circle.
+	 */
+	MathUtils.calcRotatedYPos = function(angle) {
+	    return Math.cos(angle);
+	};
+
+	/**
+	 * Rotates an angle by a quarter-turn in
+	 * a specified direction.
+	 *
+	 * @param {float} angle The angle to rotate, in radians.
+	 * @param {bool} isCW True if the angle should be
+	 *   rotated clockwise; false if the angle should 
+	 *   be rotated counter-clockwise.
+	 * @return The angle, rotated by a quarter turn.
+	 *   This angle is measured in radians.
+	 */
+	MathUtils.quarterTurn = function(angle, isCW) {
+	    return angle + ((isCW * 2 - 1) * this.PI_OVER_TWO);
+	};
+
+	/**
+	 * For an angle measured in degrees, will
+	 * find an equivalent angle between 0
+	 * and 360 degrees.
+	 *
+	 * @param {float} angle An angle measured in degrees.
+	 * @return {float} An equivalent angle between 0 and
+	 *   360 degrees.
+	 */
+	MathUtils.wrapAngleDegrees = function(angle) {
+	    while (angle >= 360) {
+	        angle -= 360;
+	    }
+	    while (angle < 0) {
+	        angle += 360;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * For an angle measured in radians, will
+	 * find an equivalent angle between 0
+	 * and 2*PI radians.
+	 *
+	 * @param {float} angle An angle measured in radians.
+	 * @return {float} An equivalent angle between
+	 *   0 and 2*PI radians.
+	 */
+	MathUtils.wrapAngleRadians = function(angle) {
+	    while (angle >= TWO_PI) {
+	        angle -= this.TWO_PI;
+	    }
+	    while (angle < 0) {
+	        angle += this.TWO_PI;
+	    }
+	    return angle;
+	};
+
+	/**
+	 * Converts an angle measured in degrees to one
+	 * measured in radians.
+	 *
+	 * @param {float} angle An angle, measured in degrees.
+	 * @return {float} The angle, measured in radians.
+	 */
+	MathUtils.toRadians = function(angle) {
+	    return angle * this.DEGREES_TO_RADIANS_CONV_FACTOR;
+	};
+
+	/**
+	 * Converts an angle measured in radians to one
+	 * measured in degrees.
+	 *
+	 * @param {float} angle An angle, measured in radians.
+	 * @return {float} The angle, measured in degrees.
+	 */
+	MathUtils.toDegrees = function(angle) {
+	    return angle * this.RADIANS_TO_DEGREES_CONV_FACTOR;
+	};
+
+	module.exports = MathUtils;
+
+
+/***/ },
+/* 40 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -5520,6 +4344,28 @@
 
 	module.exports = Sound;
 
+
+/***/ },
+/* 41 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/**
+	 * @fileOverview Defines the Coordinate struct.
+	 */
+
+	/**
+	 * A Coordinate struct marks a two-dimensional position:
+	 * {x: __,y: __}.
+	 *
+	 * @param {float} x The x component of the coordinate.
+	 * @param {float} y The y component of the coordinate.
+	 */
+	var Coordinate = function(x, y) {
+	    this.x = x;
+	    this.y = y;
+	};
+
+	module.exports = Coordinate;
 
 /***/ }
 /******/ ])

@@ -1,0 +1,59 @@
+/* Abstract Classes */
+.inline-div,
+.options > div,
+.options div[class$=labels],
+.options div[class$=buttons] {
+  display: inline-block;
+  vertical-align: top;
+}
+.bordered-box,
+.options > div {
+  border: 1px solid black;
+  padding: 5px;
+  margin: 0 5px;
+}
+.header {
+  margin-top: 20px;
+  padding: 0 15px;
+  height: 50px;
+  white-space: nowrap;
+}
+.header h1 {
+  border-bottom: 1px solid #fdb515;
+  font-size: 30px;
+  font-weight: normal;
+}
+.options {
+  padding-left: 15px;
+  margin-bottom: 20px;
+  overflow-x: scroll;
+  white-space: nowrap;
+  height: 100px;
+}
+.options h3 {
+  margin-bottom: 5px;
+}
+.options > div {
+  height: 85%;
+}
+.options > div.widget-orientation {
+  margin-left: 0;
+}
+.options > div.widget-orientation .orientation-labels {
+  padding-right: 15px;
+}
+.options div[class$=buttons] input {
+  margin: 0 5px;
+}
+.options p {
+  margin: 0;
+  line-height: 1.3em;
+}
+.js-pdf-preview {
+  width: 100%;
+  height: 70%;
+  height: calc(100% -  190px);
+  height: -moz-calc(100% - 190px);
+  height: -webkit-calc(100% -  190px);
+  height: -o-calc(100% - 190px);
+}
