@@ -118,13 +118,13 @@
 /* 2 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var PDFUtils = __webpack_require__(10);
-	var HeaderWidget = __webpack_require__(11);
-	var DotContinuityWidget = __webpack_require__(12);
-	var IndividualContinuityWidget = __webpack_require__(13);
-	var MovementDiagramWidget = __webpack_require__(14);
-	var BirdsEyeWidget = __webpack_require__(15);
-	var SurroundingDotsWidget = __webpack_require__(16);
+	var PDFUtils = __webpack_require__(5);
+	var HeaderWidget = __webpack_require__(6);
+	var DotContinuityWidget = __webpack_require__(7);
+	var IndividualContinuityWidget = __webpack_require__(8);
+	var MovementDiagramWidget = __webpack_require__(9);
+	var BirdsEyeWidget = __webpack_require__(10);
+	var SurroundingDotsWidget = __webpack_require__(11);
 
 	/**
 	 * @constant WIDTH is the width of the PDF document, in millimeters
@@ -441,7 +441,7 @@
 	 */
 
 	 var ViewerFileLoadSelector = __webpack_require__(18);
-	 var Version = __webpack_require__(17);
+	 var Version = __webpack_require__(15);
 	 
 	 /**
 	  * The collection of all functions related to creating and
@@ -530,12 +530,7 @@
 	module.exports = JSUtils;
 
 /***/ },
-/* 5 */,
-/* 6 */,
-/* 7 */,
-/* 8 */,
-/* 9 */,
-/* 10 */
+/* 5 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -717,7 +712,7 @@
 	module.exports = PDFUtils;
 
 /***/ },
-/* 11 */
+/* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -725,8 +720,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * @constant WIDTH is the width of the PDF document, in millimeters
@@ -883,7 +878,7 @@
 	module.exports = HeaderWidget;
 
 /***/ },
-/* 12 */
+/* 7 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -891,8 +886,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * Represents the widget for a given dot type's continuity
@@ -974,7 +969,7 @@
 	module.exports = DotContinuityWidget;
 
 /***/ },
-/* 13 */
+/* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -982,8 +977,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * Represents the widget for a given dot's individual continuity
@@ -1073,7 +1068,7 @@
 	module.exports = IndividualContinuityWidget;
 
 /***/ },
-/* 14 */
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1081,8 +1076,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * Represents the widget for a given dot's movement diagram
@@ -1410,7 +1405,7 @@
 	module.exports = MovementDiagramWidget;
 
 /***/ },
-/* 15 */
+/* 10 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1418,8 +1413,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * Represents the widget for the bird's eye view
@@ -1573,7 +1568,7 @@
 	module.exports = BirdsEyeWidget;
 
 /***/ },
-/* 16 */
+/* 11 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1581,8 +1576,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var PDFUtils = __webpack_require__(10);
-	var PDFWidget = __webpack_require__(20);
+	var PDFUtils = __webpack_require__(5);
+	var PDFWidget = __webpack_require__(19);
 
 	/**
 	 * Represents the widget for the surrounding dots
@@ -1686,7 +1681,10 @@
 	module.exports = SurroundingDotsWidget;
 
 /***/ },
-/* 17 */
+/* 12 */,
+/* 13 */,
+/* 14 */,
+/* 15 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -1762,6 +1760,8 @@
 	module.exports = Version;
 
 /***/ },
+/* 16 */,
+/* 17 */,
 /* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
@@ -1780,19 +1780,19 @@
 	 *   
 	 */
 
-	var FileLoadSelector = __webpack_require__(22);
-	var InvalidFileTypeError = __webpack_require__(23);
+	var FileLoadSelector = __webpack_require__(21);
+	var InvalidFileTypeError = __webpack_require__(22);
 	var JSUtils = __webpack_require__(4);
-	var Version = __webpack_require__(17);
-	var Dot = __webpack_require__(24);
-	var Sheet = __webpack_require__(25);
-	var Show = __webpack_require__(26);
-	var MovementCommandStand = __webpack_require__(27);
-	var MovementCommandMarkTime = __webpack_require__(28);
-	var MovementCommandArc = __webpack_require__(29);
-	var MovementCommandMove = __webpack_require__(30);
-	var MovementCommandGoto = __webpack_require__(31);
-	var MovementCommandEven = __webpack_require__(32);
+	var Version = __webpack_require__(15);
+	var Dot = __webpack_require__(23);
+	var Sheet = __webpack_require__(24);
+	var Show = __webpack_require__(25);
+	var MovementCommandStand = __webpack_require__(26);
+	var MovementCommandMarkTime = __webpack_require__(27);
+	var MovementCommandArc = __webpack_require__(28);
+	var MovementCommandMove = __webpack_require__(29);
+	var MovementCommandGoto = __webpack_require__(30);
+	var MovementCommandEven = __webpack_require__(31);
 	 
 	/**
 	 * Every version of the Viewer File needs to be loaded in a different way -
@@ -2081,15 +2081,14 @@
 	module.exports = ViewerFileLoadSelector;
 
 /***/ },
-/* 19 */,
-/* 20 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
 	 * @fileOverview Defines a base class for the PDFGenerator Widget classes
 	 */
 
-	 var PDFUtils = __webpack_require__(10);
+	 var PDFUtils = __webpack_require__(5);
 
 	/**
 	 * PDFWidget class
@@ -2184,8 +2183,8 @@
 	module.exports = PDFWidget;
 
 /***/ },
-/* 21 */,
-/* 22 */
+/* 20 */,
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2225,8 +2224,8 @@
 	 *         calling loadSelector.registerLoader(...)
 	 */
 
-	var ArrayUtils = __webpack_require__(36);
-	var Version = __webpack_require__(17);
+	var ArrayUtils = __webpack_require__(34);
+	var Version = __webpack_require__(15);
 	 
 	/**
 	 * Every version of a file needs to be loaded in a different way -
@@ -2304,7 +2303,7 @@
 	module.exports = FileLoadSelector;
 
 /***/ },
-/* 23 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2321,7 +2320,7 @@
 	module.exports = InvalidFileTypeError;
 
 /***/ },
-/* 24 */
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2389,7 +2388,7 @@
 	module.exports = Dot;
 
 /***/ },
-/* 25 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2520,7 +2519,7 @@
 	module.exports = Sheet;
 
 /***/ },
-/* 26 */
+/* 25 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2636,7 +2635,7 @@
 	module.exports = Show;
 
 /***/ },
-/* 27 */
+/* 26 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2644,8 +2643,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 	 
 	/**
 	 * A MovementCommand representing a period of standing.
@@ -2679,7 +2678,7 @@
 	module.exports = MovementCommandStand;
 
 /***/ },
-/* 28 */
+/* 27 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2687,8 +2686,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 
 	/**
 	 * A MovementCommand that represents a period of mark time.
@@ -2723,7 +2722,7 @@
 	module.exports = MovementCommandMarkTime;
 
 /***/ },
-/* 29 */
+/* 28 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2731,9 +2730,9 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MathUtils = __webpack_require__(39);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MathUtils = __webpack_require__(37);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 	 
 	/**
 	 * A MovementCommandArc object represents a movement along the
@@ -2817,7 +2816,7 @@
 	module.exports = MovementCommandArc;
 
 /***/ },
-/* 30 */
+/* 29 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2825,9 +2824,9 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MathUtils = __webpack_require__(39);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MathUtils = __webpack_require__(37);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 	 
 	/**
 	 * A MovementCommand which represents a constant movement in a
@@ -2884,7 +2883,7 @@
 	module.exports = MovementCommandMove;
 
 /***/ },
-/* 31 */
+/* 30 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2892,8 +2891,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 	 
 	/**
 	 * A MovementCommand that represents a "Goto" movement:
@@ -2932,7 +2931,7 @@
 	module.exports = MovementCommandGoto;
 
 /***/ },
-/* 32 */
+/* 31 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -2940,8 +2939,8 @@
 	 */
 
 	var JSUtils = __webpack_require__(4);
-	var MovementCommand = __webpack_require__(37);
-	var AnimationState = __webpack_require__(38);
+	var MovementCommand = __webpack_require__(35);
+	var AnimationState = __webpack_require__(36);
 	 
 	 
 	/**
@@ -3033,10 +3032,9 @@
 	module.exports = MovementCommandEven;
 
 /***/ },
+/* 32 */,
 /* 33 */,
-/* 34 */,
-/* 35 */,
-/* 36 */
+/* 34 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3253,14 +3251,14 @@
 	module.exports = ArrayUtils;
 
 /***/ },
-/* 37 */
+/* 35 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
 	 * @fileOverview Defines the MovementCommand class.
 	 */
 
-	var Coordinate = __webpack_require__(41);
+	var Coordinate = __webpack_require__(40);
 
 	/**
 	 * MovementCommand class
@@ -3390,7 +3388,7 @@
 	module.exports = MovementCommand;
 
 /***/ },
-/* 38 */
+/* 36 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3415,7 +3413,7 @@
 	module.exports = AnimationState;
 
 /***/ },
-/* 39 */
+/* 37 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -3653,8 +3651,9 @@
 
 
 /***/ },
-/* 40 */,
-/* 41 */
+/* 38 */,
+/* 39 */,
+/* 40 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
